@@ -6,8 +6,21 @@ import com.google.common.base.Predicate;
 import com.google.common.base.Splitter;
 
 import com.beust.jcommander.internal.Lists;
+import com.squareup.tape.FileObjectQueue;
+import com.squareup.tape.ObjectQueue;
+import com.tdunning.math.stats.AVLTreeDigest;
+import com.tdunning.math.stats.AgentDigest;
+import com.tdunning.math.stats.TDigest;
 import com.wavefront.agent.formatter.GraphiteFormatter;
+import com.wavefront.agent.histogram.Dispatcher;
+import com.wavefront.agent.histogram.DroppingSender;
+import com.wavefront.agent.histogram.MapLoader;
+import com.wavefront.agent.histogram.QueuingChannelHandler;
+import com.wavefront.agent.histogram.Scanner;
+import com.wavefront.agent.histogram.TapeDeck;
+import com.wavefront.agent.histogram.Utils;
 import com.wavefront.api.agent.AgentConfiguration;
+import com.wavefront.common.Pair;
 import com.wavefront.ingester.Decoder;
 import com.wavefront.ingester.GraphiteDecoder;
 import com.wavefront.ingester.GraphiteHostAnnotator;
@@ -17,18 +30,28 @@ import com.wavefront.ingester.StreamIngester;
 import com.wavefront.ingester.StringLineIngester;
 import com.wavefront.ingester.TcpIngester;
 
+import net.openhft.chronicle.hash.serialization.impl.StringBytesReader;
+import net.openhft.chronicle.hash.serialization.impl.StringSizedReader;
+import net.openhft.chronicle.hash.serialization.impl.StringUtf8DataAccess;
+
 import org.glassfish.jersey.jackson.JacksonFeature;
 import org.glassfish.jersey.jetty.JettyHttpContainerFactory;
 import org.glassfish.jersey.server.ResourceConfig;
 
+import java.io.File;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 
 import javax.annotation.Nullable;
 
@@ -75,6 +98,54 @@ public class PushAgent extends AbstractAgent {
         startGraphiteListener(strPort, null);
       }
     }
+    // For each listener port, set up the entire pipeline
+
+    // TODO change this
+    startHistogramListener(
+        "2880",
+        new File("/Users/timschmidt/agent/"),
+        Utils.Duration.MIN,
+        new TapeDeck<String>(new FileObjectQueue.Converter<String>() {
+          @Override
+          public String from(byte[] bytes) throws IOException {
+            return new String(bytes);
+          }
+
+          @Override
+          public void toStream(String s, OutputStream outputStream) throws IOException {
+            outputStream.write(s.getBytes("UTF-8"));
+          }
+        }),
+        new TapeDeck<TDigest>(new FileObjectQueue.Converter<TDigest>() {
+
+          @Override
+          public TDigest from(byte[] bytes) throws IOException {
+            return AVLTreeDigest.fromBytes(ByteBuffer.wrap(bytes));
+          }
+
+          @Override
+          public void toStream(TDigest tDigest, OutputStream outputStream) throws IOException {
+            // 16KB ought to be enough for anyone
+            ByteBuffer b = ByteBuffer.allocate(16 *1024);
+
+            tDigest.asSmallBytes(b);
+            int pos = b.position();
+            b.flip();
+            for (;pos > 0 ; --pos) {
+              outputStream.write(b.get());
+            }
+          }
+        })
+
+        );
+
+//    if (histogramMinsListenerPorts != null) {
+//      Iterable<String> ports = Splitter.on(",").omitEmptyStrings().trimResults().split(histogramMinsListenerPorts);
+//      for (String strPort : ports) {
+////        startHistogramListener(strPort, null);
+//      }
+//    }
+
     GraphiteFormatter graphiteFormatter = null;
     if (graphitePorts != null || picklePorts != null) {
       Preconditions.checkNotNull(graphiteFormat, "graphiteFormat must be supplied to enable graphite support");
@@ -234,6 +305,92 @@ public class PushAgent extends AbstractAgent {
       startAsManagedThread(new StringLineIngester(graphiteHandler, port)
           .withChildChannelOptions(childChannelOptions));
     }
+  }
+
+
+  /**
+   * Needs to set up a queueing handler and a consumer/lexer for the queue
+   */
+  protected void startHistogramListener(
+      String portAsString,
+      File directory,
+      Utils.Duration duration,
+      TapeDeck<String> receiveDeck,
+      TapeDeck<TDigest> sendDeck) {
+    Preconditions.checkNotNull(portAsString);
+    Preconditions.checkNotNull(directory);
+    Preconditions.checkArgument(directory.isDirectory(), directory.getAbsolutePath() + " must be a directory!");
+    Preconditions.checkArgument(directory.canWrite(), directory.getAbsolutePath() + " must be write-able!");
+    Preconditions.checkNotNull(duration);
+    Preconditions.checkNotNull(receiveDeck);
+    Preconditions.checkNotNull(sendDeck);
+    ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(4);
+
+    int port = Integer.parseInt(portAsString);
+    File tapeFile = new File(directory, duration.name() + "_" + portAsString);
+    File outTapeFile = new File(directory, "sendTape");
+    ObjectQueue<String> receiveTape = receiveDeck.getTape(tapeFile);
+    ObjectQueue<TDigest> sendTape = sendDeck.getTape(outTapeFile);
+    PointHandler invalidPointHandler = new PointHandlerImpl(port, pushValidationLevel, pushBlockedSamples, prefix, getFlushTasks(port));
+
+    // TODO inject
+    MapLoader<String, AgentDigest, AgentDigest.Codec> loader = new MapLoader<>(
+        String.class,
+        AgentDigest.class,
+        10000000L,
+        200D,
+        1000D,
+        AgentDigest.Codec.get());
+
+    File mapFile = new File(directory, "mapfile");
+    ConcurrentMap<String, AgentDigest> map = loader.get(mapFile);
+
+    // Set-up scanner
+    Scanner scanTask = new Scanner(
+        receiveTape,
+        map,
+        new GraphiteDecoder("unknown", customSourceTags),
+        invalidPointHandler,
+        Validation.Level.valueOf(pushValidationLevel),
+        duration,
+        60L);
+
+    scheduler.scheduleWithFixedDelay(scanTask, 100L, 1L, TimeUnit.MICROSECONDS);
+
+    // Set-up dispatcher
+    Dispatcher dispatchTask = new Dispatcher(map, sendTape);
+    scheduler.scheduleWithFixedDelay(dispatchTask, 100L, 1L, TimeUnit.MICROSECONDS);
+
+    DroppingSender sendTask = new DroppingSender(sendTape);
+    scheduler.scheduleWithFixedDelay(sendTask, 100L, 1L, TimeUnit.MICROSECONDS);
+
+    // Set-up producer
+    new Thread(
+        new StringLineIngester(
+            new QueuingChannelHandler<String>(receiveTape),
+            port)).start();
+
+
+//    // Run the same setup as above but pass a special PointHandler to the ChannelStringHandler to accumulate based on tags and metric
+//    ChannelHandler handler = new ChannelStringHandler(
+//        new GraphiteDecoder("unknown", customSourceTags),
+//        null, // TODO This should be the PointHandler
+//        new MetricWhiteBlackList(whitelistRegex, blacklistRegex, portAsString),
+//        formatter);
+//
+//    if (formatter == null) {
+//      List<Function<Channel, ChannelHandler>> decoders = Lists.newArrayList(1);
+//      decoders.add(new Function<Channel, ChannelHandler>() {
+//        @Override
+//        public ChannelHandler apply(Channel input) {
+//          SocketChannel ch = (SocketChannel) input;
+//          return new GraphiteHostAnnotator(ch.remoteAddress().getHostName(), customSourceTags);
+//        }
+//      });
+//      new Thread(new StringLineIngester(decoders, handler, port)).start();
+//    } else {
+//      new Thread(new StringLineIngester(handler, port)).start();
+//    }
   }
 
   /**

@@ -72,6 +72,11 @@ public abstract class AbstractAgent {
 
   private static final Gson GSON = new Gson();
   private static final int GRAPHITE_LISTENING_PORT = 2878;
+
+  private static final int HISTOGRAM_MINS_LISTENING_PORT = 2880;
+  private static final int HISTOGRAM_HOURS_LISTENING_PORT = 2881;
+  private static final int HISTOGRAM_DAYS_LISTENING_PORT = 2882;
+
   private static final int OPENTSDB_LISTENING_PORT = 4242;
 
   protected static final SSLSocketFactoryImpl SSL_SOCKET_FACTORY = new SSLSocketFactoryImpl(
@@ -139,6 +144,18 @@ public abstract class AbstractAgent {
   @Parameter(names = {"--pushListenerPorts"}, description = "Comma-separated list of ports to listen on. Defaults to " +
       "2878.")
   protected String pushListenerPorts = "" + GRAPHITE_LISTENING_PORT;
+
+  @Parameter(names = {"--histogramMinutesListenerPorts"}, description = "Comma-separated list of ports to listen on. Defaults to " +
+          "2880.")
+  protected String histogramMinsListenerPorts = "";
+
+  @Parameter(names = {"--histogramHoursListenerPorts"}, description = "Comma-separated list of ports to listen on. Defaults to " +
+      "2881.")
+  protected String histogramHoursListenerPorts = "";
+
+  @Parameter(names = {"--histogramDaysListenerPorts"}, description = "Comma-separated list of ports to listen on. Defaults to " +
+      "2882.")
+  protected String histogramDaysListenerPorts = "";
 
   @Parameter(names = {"--graphitePorts"}, description = "Comma-separated list of ports to listen on for graphite " +
       "data. Defaults to empty list.")
@@ -306,6 +323,9 @@ public abstract class AbstractAgent {
         pushBlockedSamples = Integer.parseInt(prop.getProperty("pushBlockedSamples",
             String.valueOf(pushBlockedSamples)));
         pushListenerPorts = prop.getProperty("pushListenerPorts", pushListenerPorts);
+        histogramMinsListenerPorts = prop.getProperty("histogramMinsListenerPorts", histogramMinsListenerPorts);
+        histogramHoursListenerPorts = prop.getProperty("histogramHoursListenerPorts", histogramHoursListenerPorts);
+        histogramDaysListenerPorts = prop.getProperty("histogramDaysListenerPorts", histogramDaysListenerPorts);
         retryThreads = Integer.parseInt(prop.getProperty("retryThreads", String.valueOf(retryThreads)));
         flushThreads = Integer.parseInt(prop.getProperty("flushThreads", String.valueOf(flushThreads)));
         httpJsonPorts = prop.getProperty("jsonListenerPorts", httpJsonPorts);

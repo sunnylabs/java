@@ -52,7 +52,7 @@
     <!-- Testing library versions -->
     <junit.version>4.12</junit.version>
 
-    <java.version>1.7</java.version>
+    <java.version>1.8</java.version>
     <jetty.version>9.2.10.v20150310</jetty.version>
     <jackson.version>2.5.3</jackson.version>
     <public.project.version>3.25-SNAPSHOT</public.project.version>

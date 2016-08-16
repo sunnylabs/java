@@ -21,6 +21,8 @@ import javax.annotation.Nullable;
 
 import sunnylabs.report.ReportPoint;
 
+import static com.wavefront.agent.Validation.validatePoint;
+
 /**
  * Adds all graphite strings to a working list, and batches them up on a set schedule (100ms) to be sent (through the
  * daemon's logic) up to the collector on the server side.
@@ -75,56 +77,19 @@ public class PointHandlerImpl implements PointHandler {
   public void reportPoint(ReportPoint point, String debugLine) {
     final PostPushDataTimedTask randomPostTask = getRandomPostTask();
     try {
-      Object pointValue = point.getValue();
-
-      validateHost(point.getHost());
-
       if (prefix != null) {
         point.setMetric(prefix + "." + point.getMetric());
       }
-      if (point.getMetric().length() >= 1024) {
-        throw new IllegalArgumentException("WF-301: Metric name is too long: " + point.getMetric());
-      }
+      validatePoint(
+          point,
+          "" + port,
+          debugLine,
+          validationLevel == null ? null : Validation.Level.valueOf(validationLevel));
 
-      if (!charactersAreValid(point.getMetric())) {
-        illegalCharacterPoints.inc();
-        String errorMessage = "WF-400 " + port + ": Point metric has illegal character (" + debugLine + ")";
-        throw new IllegalArgumentException(errorMessage);
-      }
+      // No validation was requested by user; send forward.
+      randomPostTask.addPoint(pointToString(point));
+      receivedPointLag.update(Clock.now() - point.getTimestamp());
 
-      if (!annotationKeysAreValid(point)) {
-        String errorMessage = "WF-401 " + port + ": Point annotation key has illegal character (" + debugLine + ")";
-        throw new IllegalArgumentException(errorMessage);
-      }
-
-      // Each tag of the form "k=v" must be < 256
-      for (Map.Entry<String, String> tag : point.getAnnotations().entrySet()) {
-        if (tag.getKey().length() + tag.getValue().length() >= 255) {
-          throw new IllegalArgumentException("Tag too long: " + tag.getKey() + "=" + tag.getValue());
-        }
-      }
-      if (!pointInRange(point)) {
-        outOfRangePointTimes.inc();
-        String errorMessage = "WF-402 " + port + ": Point outside of reasonable time frame (" + debugLine + ")";
-        throw new IllegalArgumentException(errorMessage);
-      }
-      if ((validationLevel != null) && (!validationLevel.equals(VALIDATION_NO_VALIDATION))) {
-        // Is it the right type of point?
-        switch (validationLevel) {
-          case VALIDATION_NUMERIC_ONLY:
-            if (!(pointValue instanceof Long) && !(pointValue instanceof Double)) {
-              String errorMessage = "WF-403 " + port + ": Was not long/double object (" + debugLine + ")";
-              throw new IllegalArgumentException(errorMessage);
-            }
-            break;
-        }
-        randomPostTask.addPoint(pointToString(point));
-        receivedPointLag.update(Clock.now() - point.getTimestamp());
-      } else {
-        // No validation was requested by user; send forward.
-        randomPostTask.addPoint(pointToString(point));
-        receivedPointLag.update(Clock.now() - point.getTimestamp());
-      }
     } catch (IllegalArgumentException e) {
       this.handleBlockedPoint(e.getMessage());
     } catch (Exception ex) {
