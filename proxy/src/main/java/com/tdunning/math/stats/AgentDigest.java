@@ -2,8 +2,6 @@ package com.tdunning.math.stats;
 
 import com.google.common.base.Preconditions;
 
-import com.wavefront.agent.histogram.Utils;
-
 import net.openhft.chronicle.bytes.Bytes;
 import net.openhft.chronicle.core.io.IORuntimeException;
 import net.openhft.chronicle.core.util.ReadResolvable;
@@ -28,7 +26,7 @@ import sunnylabs.report.HistogramType;
 /**
  * NOTE: This is a pruned and modified version of {@link MergingDigest}. It does not support queries (cdf/quantiles) or
  * the traditional encodings.
- *
+ * <p/>
  * Maintains a t-digest by collecting new points in a buffer that is then sorted occasionally and merged into a sorted
  * array that contains previously computed centroids.
  * <p/>
@@ -91,33 +89,19 @@ public class AgentDigest extends AbstractTDigest {
 
   private long dispatchTimeMillis;
 
+  // Must be between 20 and 1000 (at least MergingDigest clamps to that range)
+  private static final double COMPRESSION = 20D;
+
+  static {
+    Preconditions.checkArgument(COMPRESSION >= 20D);
+    Preconditions.checkArgument(COMPRESSION <= 1000D);
+  }
+
   // magic formula created by regressing against known sizes for sample compression values
-  private static int DEFAULT_BUFFER_SIZE = (int) (7.5 + 0.37 * Utils.COMPRESSION - 2e-4 * Utils.COMPRESSION * Utils.COMPRESSION);
+  private static final int DEFAULT_BUFFER_SIZE = (int) (7.5 + 0.37 * COMPRESSION - 2e-4 * COMPRESSION * COMPRESSION);
   // should only need ceiling(compression * PI / 2).  Double the allocation for now for safety
-  private static int DEFAULT_SIZE = (int) (Math.PI * Utils.COMPRESSION + 0.5);
+  private static final int DEFAULT_SIZE = (int) (Math.PI * COMPRESSION + 0.5);
 
-  /**
-   * Allocates a buffer merging t-digest.  This is the normally used constructor that
-   * allocates default sized internal arrays.  Other versions are available, but should
-   * only be used for special cases.
-   *
-   */
-//  public AgentDigest(long dispatchTimeMillis) {
-//    this(dispatchTimeMillis, DEFAULT_BUFFER_SIZE, DEFAULT_SIZE);
-//  }
-
-//  /**
-//   * If you know the size of the temporary buffer for incoming points, you can use this entry point.
-//   *
-//   * @param bufferSize  How many samples to retain before merging.
-//   */
-//  public AgentDigest(long dispatchTimeMillis, int bufferSize) {
-//    this(dispatchTimeMillis, bufferSize, (int) (Math.PI * Utils.COMPRESSION + 0.5));
-//  }
-
-  /**
-   * Fully specified constructor.  Normally only used for deserializing a buffer t-digest.
-   */
   public AgentDigest(long dispatchTimeMillis) {
     weight = new double[DEFAULT_SIZE];
     mean = new double[DEFAULT_SIZE];
@@ -238,8 +222,8 @@ public class AgentDigest extends AbstractTDigest {
 
       if (data != null) {
         data = mergeData;
-        mergeData = new ArrayList<List<Double>>();
-        tempData = new ArrayList<List<Double>>();
+        mergeData = new ArrayList<>();
+        tempData = new ArrayList<>();
       }
     }
   }
@@ -260,7 +244,7 @@ public class AgentDigest extends AbstractTDigest {
     }
     if (mergeData != null) {
       while (mergeData.size() <= lastUsedCell) {
-        mergeData.add(new ArrayList<Double>());
+        mergeData.add(new ArrayList<>());
       }
       mergeData.get(lastUsedCell).addAll(newData);
     }
@@ -320,7 +304,7 @@ public class AgentDigest extends AbstractTDigest {
    * @return The centroid scale value corresponding to q.
    */
   private double integratedLocation(double q) {
-    return Utils.COMPRESSION * (Math.asin(2 * q - 1) + Math.PI / 2) / Math.PI;
+    return COMPRESSION * (Math.asin(2 * q - 1) + Math.PI / 2) / Math.PI;
   }
 
   @Override
@@ -348,7 +332,7 @@ public class AgentDigest extends AbstractTDigest {
   public Collection<Centroid> centroids() {
     // we don't actually keep centroid structures around so we have to fake it
     compress();
-    List<Centroid> r = new ArrayList<Centroid>();
+    List<Centroid> r = new ArrayList<>();
     for (int i = 0; i <= lastUsedCell; i++) {
       r.add(new Centroid(mean[i], (int) weight[i], data != null ? data.get(i) : null));
     }
@@ -357,7 +341,7 @@ public class AgentDigest extends AbstractTDigest {
 
   @Override
   public double compression() {
-    return Utils.COMPRESSION;
+    return COMPRESSION;
   }
 
   @Override
@@ -418,13 +402,13 @@ public class AgentDigest extends AbstractTDigest {
   /**
    * Stateless AgentDigest codec for chronicle maps
    */
-  public static class Codec implements SizedReader<AgentDigest>, SizedWriter<AgentDigest>, ReadResolvable<Codec> {
-    private static final Codec INSTANCE = new Codec();
+  public static class AgentDigestMarshaller implements SizedReader<AgentDigest>, SizedWriter<AgentDigest>, ReadResolvable<AgentDigestMarshaller> {
+    private static final AgentDigestMarshaller INSTANCE = new AgentDigestMarshaller();
 
-    private Codec() {
+    private AgentDigestMarshaller() {
     }
 
-    public static Codec get() {
+    public static AgentDigestMarshaller get() {
       return INSTANCE;
     }
 
@@ -479,7 +463,7 @@ public class AgentDigest extends AbstractTDigest {
     }
 
     @Override
-    public Codec readResolve() {
+    public AgentDigestMarshaller readResolve() {
       return INSTANCE;
     }
 

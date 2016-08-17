@@ -90,7 +90,7 @@ public class Scanner implements Runnable {
             validationLevel);
 
         // Get key
-        Utils.HistogramKey histogramKey = Utils.getBinKey(event, granularity);
+        Utils.HistogramKey histogramKey = Utils.makeKey(event, granularity);
         double value = (Double) event.getValue();
 
         // atomic update

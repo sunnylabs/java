@@ -31,14 +31,7 @@ import sunnylabs.report.ReportPoint;
  * @author Tim Schmidt (tim@wavefront.com).
  */
 public final class Utils {
-  // Must be between 20 and 1000
-  public static final double COMPRESSION = 20D;
   private static final Logger logger = Logger.getLogger(Utils.class.getCanonicalName());
-
-  static {
-    Preconditions.checkArgument(COMPRESSION >= 20D);
-    Preconditions.checkArgument(COMPRESSION <= 1000D);
-  }
 
   private Utils() {
     // No instance
@@ -48,7 +41,7 @@ public final class Utils {
    * Standard supported aggregation Granularities.
    */
   public enum Granularity {
-    MIN(60 * 1000),
+    MINUTE(60 * 1000),
     HOUR(60 * 60 * 1000),
     DAY(24 * 60 * 60 * 1000);
 
@@ -58,16 +51,30 @@ public final class Utils {
       this.inMillis = inMillis;
     }
 
+    /**
+     * Duration of a corresponding bin in milliseconds.
+     *
+     * @return
+     */
     public int getInMillis() {
       return inMillis;
     }
 
+    /**
+     * Bin id for an epoch time is the epoch time in the corresponding granularity.
+     *
+     * @param timeMillis
+     * @return
+     */
     public int getBinId(long timeMillis) {
       return (int) (timeMillis / inMillis);
     }
   }
 
-  public static HistogramKey getBinKey(ReportPoint point, Granularity granularity) {
+  /**
+   * Generates a {@link HistogramKey} according a prototype {@link ReportPoint} and {@link Granularity}.
+   */
+  public static HistogramKey makeKey(ReportPoint point, Granularity granularity) {
     Preconditions.checkNotNull(point);
     Preconditions.checkNotNull(granularity);
 
@@ -93,11 +100,11 @@ public final class Utils {
   }
 
   /**
-   * Uniquely identifies a time-series - time-interval pair (=bin). These are the base units
+   * Uniquely identifies a time-series - time-interval pair. These are the base sample aggregation scopes on the agent.
    */
   public static class HistogramKey {
     // NOTE: fields are not final to allow object reuse
-    private byte durationOrdinal;
+    private byte granularityOrdinal;
     private int binId;
     private String metric;
     @Nullable
@@ -106,8 +113,8 @@ public final class Utils {
     private String[] tags;
 
 
-    private HistogramKey(byte durationOrdinal, int binId, @NotNull String metric, @Nullable String source, @Nullable String[] tags) {
-      this.durationOrdinal = durationOrdinal;
+    private HistogramKey(byte granularityOrdinal, int binId, @NotNull String metric, @Nullable String source, @Nullable String[] tags) {
+      this.granularityOrdinal = granularityOrdinal;
       this.binId = binId;
       this.metric = metric;
       this.source = source;
@@ -118,8 +125,8 @@ public final class Utils {
       // For decoding
     }
 
-    public byte getDurationOrdinal() {
-      return durationOrdinal;
+    public byte getGranularityOrdinal() {
+      return granularityOrdinal;
     }
 
     public int getBinId() {
@@ -141,13 +148,24 @@ public final class Utils {
     }
 
     @Override
+    public String toString() {
+      return "HistogramKey{" +
+          "granularityOrdinal=" + granularityOrdinal +
+          ", binId=" + binId +
+          ", metric='" + metric + '\'' +
+          ", source='" + source + '\'' +
+          ", tags=" + Arrays.toString(tags) +
+          '}';
+    }
+
+    @Override
     public boolean equals(Object o) {
       if (this == o) return true;
       if (o == null || getClass() != o.getClass()) return false;
 
       HistogramKey histogramKey = (HistogramKey) o;
 
-      if (durationOrdinal != histogramKey.durationOrdinal) return false;
+      if (granularityOrdinal != histogramKey.granularityOrdinal) return false;
       if (binId != histogramKey.binId) return false;
       if (!metric.equals(histogramKey.metric)) return false;
       if (source != null ? !source.equals(histogramKey.source) : histogramKey.source != null) return false;
@@ -158,7 +176,7 @@ public final class Utils {
 
     @Override
     public int hashCode() {
-      int result = (int) durationOrdinal;
+      int result = (int) granularityOrdinal;
       result = 31 * result + binId;
       result = 31 * result + metric.hashCode();
       result = 31 * result + (source != null ? source.hashCode() : 0);
@@ -187,18 +205,21 @@ public final class Utils {
     }
 
     public int getBinDurationInMillis() {
-      return Granularity.values()[durationOrdinal].getInMillis();
+      return Granularity.values()[granularityOrdinal].getInMillis();
     }
   }
 
   /**
-   * For now (trivial) encoding of the form short length and bytes
-   * Consider using chronicle-values or at least a local byte[] / Stringbuffers to be a little more efficient about encodings.
+   * (For now, a rather trivial) encoding of {@link HistogramKey} the form short length and bytes
+   *
+   * Consider using chronicle-values or making this stateful with a local byte[]  / Stringbuffers to be a little more
+   * efficient about encodings.
    */
   public static class HistogramKeyMarshaller implements BytesReader<HistogramKey>, BytesWriter<HistogramKey>, ReadResolvable<HistogramKeyMarshaller> {
     private static final HistogramKeyMarshaller INSTANCE = new HistogramKeyMarshaller();
 
     private HistogramKeyMarshaller() {
+      // Private Singleton
     }
 
     public static HistogramKeyMarshaller get() {
@@ -243,7 +264,7 @@ public final class Utils {
       if (using == null) {
         using = new HistogramKey();
       }
-      using.durationOrdinal = in.readByte();
+      using.granularityOrdinal = in.readByte();
       using.binId = in.readInt();
       using.metric = readString(in);
       using.source = readString(in);
@@ -257,7 +278,7 @@ public final class Utils {
 
     @Override
     public void write(Bytes out, @NotNull HistogramKey toWrite) {
-      out.writeByte(toWrite.durationOrdinal);
+      out.writeByte(toWrite.granularityOrdinal);
       out.writeInt(toWrite.binId);
       writeString(out, toWrite.metric);
       writeString(out, toWrite.source);

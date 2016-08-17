@@ -103,7 +103,7 @@ public class PushAgent extends AbstractAgent {
     startHistogramListener(
         "2880",
         new File("/Users/timschmidt/agent/"),
-        Utils.Granularity.MIN,
+        Utils.Granularity.MINUTE,
         new TapeDeck<String>(new FileObjectQueue.Converter<String>() {
           @Override
           public String from(byte[] bytes) throws IOException {
@@ -332,14 +332,14 @@ public class PushAgent extends AbstractAgent {
     PointHandler invalidPointHandler = new PointHandlerImpl(port, pushValidationLevel, pushBlockedSamples, prefix, getFlushTasks(port));
 
     // TODO inject
-    MapLoader<Utils.HistogramKey, AgentDigest, Utils.HistogramKeyMarshaller, AgentDigest.Codec> loader = new MapLoader<>(
+    MapLoader<Utils.HistogramKey, AgentDigest, Utils.HistogramKeyMarshaller, AgentDigest.AgentDigestMarshaller> loader = new MapLoader<>(
         Utils.HistogramKey.class,
         AgentDigest.class,
         10000000L,
         200D,
         1000D,
         Utils.HistogramKeyMarshaller.get(),
-        AgentDigest.Codec.get());
+        AgentDigest.AgentDigestMarshaller.get());
 
     File mapFile = new File(directory, "mapfile");
     ConcurrentMap<Utils.HistogramKey, AgentDigest> map = loader.get(mapFile);
