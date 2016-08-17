@@ -54,7 +54,7 @@
 //      if (this == o) return true;
 //      if (o == null || getClass() != o.getClass()) return false;
 //
-//      BinKey binKey = (BinKey) o;
+//      HistogramKey binKey = (HistogramKey) o;
 //
 //      if (!customer.equals(binKey.customer)) return false;
 //      if (!metric.equals(binKey.metric)) return false;
@@ -101,7 +101,7 @@
 //    void addSample(ReportPoint p) {
 //
 //      prepareBinning();
-//      BinKey key = new BinKey(p);
+//      HistogramKey key = new HistogramKey(p);
 //
 //      if (!binning.containsKey(key)) {
 //        binning.put(key, new AVLTreeDigest(COMPRESSION));

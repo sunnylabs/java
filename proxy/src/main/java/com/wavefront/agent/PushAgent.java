@@ -8,9 +8,7 @@ import com.google.common.base.Splitter;
 import com.beust.jcommander.internal.Lists;
 import com.squareup.tape.FileObjectQueue;
 import com.squareup.tape.ObjectQueue;
-import com.tdunning.math.stats.AVLTreeDigest;
 import com.tdunning.math.stats.AgentDigest;
-import com.tdunning.math.stats.TDigest;
 import com.wavefront.agent.formatter.GraphiteFormatter;
 import com.wavefront.agent.histogram.Dispatcher;
 import com.wavefront.agent.histogram.DroppingSender;
@@ -20,7 +18,6 @@ import com.wavefront.agent.histogram.Scanner;
 import com.wavefront.agent.histogram.TapeDeck;
 import com.wavefront.agent.histogram.Utils;
 import com.wavefront.api.agent.AgentConfiguration;
-import com.wavefront.common.Pair;
 import com.wavefront.ingester.Decoder;
 import com.wavefront.ingester.GraphiteDecoder;
 import com.wavefront.ingester.GraphiteHostAnnotator;
@@ -30,14 +27,9 @@ import com.wavefront.ingester.StreamIngester;
 import com.wavefront.ingester.StringLineIngester;
 import com.wavefront.ingester.TcpIngester;
 
-import net.openhft.chronicle.hash.serialization.impl.StringBytesReader;
-import net.openhft.chronicle.hash.serialization.impl.StringSizedReader;
-import net.openhft.chronicle.hash.serialization.impl.StringUtf8DataAccess;
-
 import org.apache.avro.io.BinaryEncoder;
 import org.apache.avro.io.DatumWriter;
 import org.apache.avro.io.DecoderFactory;
-import org.apache.avro.io.Encoder;
 import org.apache.avro.io.EncoderFactory;
 import org.apache.avro.specific.SpecificDatumReader;
 import org.apache.avro.specific.SpecificDatumWriter;
@@ -50,7 +42,6 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
@@ -112,7 +103,7 @@ public class PushAgent extends AbstractAgent {
     startHistogramListener(
         "2880",
         new File("/Users/timschmidt/agent/"),
-        Utils.Duration.MIN,
+        Utils.Granularity.MIN,
         new TapeDeck<String>(new FileObjectQueue.Converter<String>() {
           @Override
           public String from(byte[] bytes) throws IOException {
@@ -321,37 +312,37 @@ public class PushAgent extends AbstractAgent {
   protected void startHistogramListener(
       String portAsString,
       File directory,
-      Utils.Duration duration,
+      Utils.Granularity granularity,
       TapeDeck<String> receiveDeck,
       TapeDeck<ReportPoint> sendDeck) {
     Preconditions.checkNotNull(portAsString);
     Preconditions.checkNotNull(directory);
     Preconditions.checkArgument(directory.isDirectory(), directory.getAbsolutePath() + " must be a directory!");
     Preconditions.checkArgument(directory.canWrite(), directory.getAbsolutePath() + " must be write-able!");
-    Preconditions.checkNotNull(duration);
+    Preconditions.checkNotNull(granularity);
     Preconditions.checkNotNull(receiveDeck);
     Preconditions.checkNotNull(sendDeck);
     ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(4);
 
     int port = Integer.parseInt(portAsString);
-    File tapeFile = new File(directory, duration.name() + "_" + portAsString);
+    File tapeFile = new File(directory, granularity.name() + "_" + portAsString);
     File outTapeFile = new File(directory, "sendTape");
     ObjectQueue<String> receiveTape = receiveDeck.getTape(tapeFile);
     ObjectQueue<ReportPoint> sendTape = sendDeck.getTape(outTapeFile);
     PointHandler invalidPointHandler = new PointHandlerImpl(port, pushValidationLevel, pushBlockedSamples, prefix, getFlushTasks(port));
 
     // TODO inject
-    MapLoader<Utils.BinKey, AgentDigest, Utils.BinKeyMarshaller, AgentDigest.Codec> loader = new MapLoader<>(
-        Utils.BinKey.class,
+    MapLoader<Utils.HistogramKey, AgentDigest, Utils.HistogramKeyMarshaller, AgentDigest.Codec> loader = new MapLoader<>(
+        Utils.HistogramKey.class,
         AgentDigest.class,
         10000000L,
         200D,
         1000D,
-        Utils.BinKeyMarshaller.get(),
+        Utils.HistogramKeyMarshaller.get(),
         AgentDigest.Codec.get());
 
     File mapFile = new File(directory, "mapfile");
-    ConcurrentMap<Utils.BinKey, AgentDigest> map = loader.get(mapFile);
+    ConcurrentMap<Utils.HistogramKey, AgentDigest> map = loader.get(mapFile);
 
     // Set-up scanner
     Scanner scanTask = new Scanner(
@@ -360,7 +351,7 @@ public class PushAgent extends AbstractAgent {
         new GraphiteDecoder("unknown", customSourceTags),
         invalidPointHandler,
         Validation.Level.valueOf(pushValidationLevel),
-        duration,
+        granularity,
         30000L);
 
     scheduler.scheduleWithFixedDelay(scanTask, 100L, 1L, TimeUnit.MICROSECONDS);

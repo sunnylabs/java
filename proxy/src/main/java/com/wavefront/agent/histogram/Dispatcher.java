@@ -17,10 +17,10 @@ import sunnylabs.report.ReportPoint;
 public class Dispatcher implements Runnable {
   private final static Logger logger = Logger.getLogger(Dispatcher.class.getCanonicalName());
 
-  private final ConcurrentMap<Utils.BinKey, AgentDigest> digests;
+  private final ConcurrentMap<Utils.HistogramKey, AgentDigest> digests;
   private final ObjectQueue<ReportPoint> output;
 
-  public Dispatcher(ConcurrentMap<Utils.BinKey, AgentDigest> digests, ObjectQueue<ReportPoint> output) {
+  public Dispatcher(ConcurrentMap<Utils.HistogramKey, AgentDigest> digests, ObjectQueue<ReportPoint> output) {
     this.digests = digests;
     this.output = output;
   }
@@ -28,7 +28,7 @@ public class Dispatcher implements Runnable {
   @Override
   public void run() {
 
-    for (Utils.BinKey key : digests.keySet()) {
+    for (Utils.HistogramKey key : digests.keySet()) {
       digests.compute(key, (k, v) -> {
         if (v==null) {
           return null;
@@ -37,12 +37,12 @@ public class Dispatcher implements Runnable {
         if (v.getDispatchTimeMillis() < System.currentTimeMillis()) {
           try {
            ReportPoint out = ReportPoint.newBuilder()
-                .setTimestamp(Utils.binTimeSecs(k.getBinId()))
+                .setTimestamp(k.getBinTimeMillis())
                 .setMetric(k.getMetric())
                 .setHost(k.getSource())
                 .setAnnotations(k.getTagsAsMap())
                 .setTable("dummy")
-                .setValue(v.toHistogram((int) Utils.durationSecs(k.getBinId())))
+                .setValue(v.toHistogram(k.getBinDurationInMillis()))
                 .build();
 
             output.add(out);

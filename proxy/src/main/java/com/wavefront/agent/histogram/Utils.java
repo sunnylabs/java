@@ -1,7 +1,6 @@
 package com.wavefront.agent.histogram;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 
 import net.openhft.chronicle.bytes.Bytes;
@@ -17,10 +16,12 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
-import javax.annotation.Nullable;
-import javax.validation.constraints.NotNull;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.NotNull;
 
 import sunnylabs.report.ReportPoint;
 
@@ -32,6 +33,7 @@ import sunnylabs.report.ReportPoint;
 public final class Utils {
   // Must be between 20 and 1000
   public static final double COMPRESSION = 20D;
+  private static final Logger logger = Logger.getLogger(Utils.class.getCanonicalName());
 
   static {
     Preconditions.checkArgument(COMPRESSION >= 20D);
@@ -39,99 +41,35 @@ public final class Utils {
   }
 
   private Utils() {
-  }
-
-  static long binTimeSecs(@NotNull String binId) {
-    Duration d = Duration.fromBinId(binId);
-
-    if (d == null) {
-      throw new IllegalArgumentException("Not a valid binId: " + binId);
-    }
-    try {
-      long time = Long.parseLong(binId.substring(1));
-      return time * d.getInMillis();
-    } catch (NumberFormatException e) {
-      throw new IllegalArgumentException("Not a valid binId: " + binId);
-    }
-  }
-
-  static long durationSecs(@NotNull String binId) {
-    Duration d = Duration.fromBinId(binId);
-    if (d == null) {
-      throw new IllegalArgumentException("Not a valid binId: " + binId);
-    }
-
-    return d.getInMillis();
+    // No instance
   }
 
   /**
-   * TODO consider using Joda time to support different timezones for day accumulation
+   * Standard supported aggregation Granularities.
    */
-  public enum Duration {
-    MIN('m', 60L * 1000L),
-    HOUR('h', 3600L * 1000L),
-    DAY('d', 86400L * 1000L);
+  public enum Granularity {
+    MIN(60 * 1000),
+    HOUR(60 * 60 * 1000),
+    DAY(24 * 60 * 60 * 1000);
 
-    private final char prefix;
+    private final int inMillis;
 
-    private final long inMillis;
-
-    Duration(char prefix, long inMillis) {
-      this.prefix = prefix;
+    Granularity(int inMillis) {
       this.inMillis = inMillis;
     }
 
-    static Duration fromBinId(@NotNull String binId) {
-      switch (binId.charAt(0)) {
-        case 'm':
-          return MIN;
-        case 'h':
-          return HOUR;
-        case 'd':
-          return DAY;
-        default:
-          return null;
-      }
-    }
-
-    public long getInMillis() {
+    public int getInMillis() {
       return inMillis;
     }
 
-
-    String getBinId(long epochMillis) {
-      return "" + prefix + (epochMillis / inMillis);
+    public int getBinId(long timeMillis) {
+      return (int) (timeMillis / inMillis);
     }
   }
 
-  /**
-   * Need good delimiter chars
-   */
-  private static final char METRIC_DELIMITER = '|';
-
-  public static String getBinningLabel(ReportPoint point, Duration duration) {
+  public static HistogramKey getBinKey(ReportPoint point, Granularity granularity) {
     Preconditions.checkNotNull(point);
-    Preconditions.checkNotNull(duration);
-
-    // Needs to be time-bin - metric, source, [tag-k-tag-val]
-    String result = duration.getBinId(point.getTimestamp()) + "-" + point.getMetric();
-
-    if (!Strings.isNullOrEmpty(point.getHost())) {
-      result += "-" + point.getHost();
-    }
-
-    if (point.getAnnotations() != null) {
-      for (Map.Entry<String, String> tag : point.getAnnotations().entrySet()) {
-        result += "-" + tag.getKey() + ":" + tag.getValue();
-      }
-    }
-
-    return result;
-  }
-
-  public static BinKey getBinKey(ReportPoint point, Duration duration) {
-    Preconditions.checkNotNull(point);
-    Preconditions.checkNotNull(duration);
+    Preconditions.checkNotNull(granularity);
 
     String[] annotations = null;
     if (point.getAnnotations() != null) {
@@ -145,19 +83,22 @@ public final class Utils {
       }
     }
 
-    return new BinKey(
-        duration.getBinId(point.getTimestamp()),
+    return new HistogramKey(
+        (byte) granularity.ordinal(),
+        granularity.getBinId(point.getTimestamp()),
         point.getMetric(),
         point.getHost(),
         annotations
     );
   }
 
-  public static class BinKey {
+  /**
+   * Uniquely identifies a time-series - time-interval pair (=bin). These are the base units
+   */
+  public static class HistogramKey {
     // NOTE: fields are not final to allow object reuse
-    @NotNull
-    private String binId;
-    @NotNull
+    private byte durationOrdinal;
+    private int binId;
     private String metric;
     @Nullable
     private String source;
@@ -165,51 +106,23 @@ public final class Utils {
     private String[] tags;
 
 
-    private BinKey(String binId, String metric, @Nullable String source, @Nullable String[] tags) {
+    private HistogramKey(byte durationOrdinal, int binId, @NotNull String metric, @Nullable String source, @Nullable String[] tags) {
+      this.durationOrdinal = durationOrdinal;
       this.binId = binId;
       this.metric = metric;
       this.source = source;
       this.tags = tags;
     }
 
-    private BinKey() {
+    private HistogramKey() {
+      // For decoding
     }
 
-    @Override
-    public String toString() {
-      return "BinKey{" +
-          "binId='" + binId + '\'' +
-          ", metric='" + metric + '\'' +
-          ", source='" + source + '\'' +
-          ", tags=" + Arrays.toString(tags) +
-          '}';
+    public byte getDurationOrdinal() {
+      return durationOrdinal;
     }
 
-    @Override
-    public boolean equals(Object o) {
-      if (this == o) return true;
-      if (o == null || getClass() != o.getClass()) return false;
-
-      BinKey binKey = (BinKey) o;
-
-      if (!binId.equals(binKey.binId)) return false;
-      if (!metric.equals(binKey.metric)) return false;
-      if (source != null ? !source.equals(binKey.source) : binKey.source != null) return false;
-      // Probably incorrect - comparing Object[] arrays with Arrays.equals
-      return Arrays.equals(tags, binKey.tags);
-
-    }
-
-    @Override
-    public int hashCode() {
-      int result = binId.hashCode();
-      result = 31 * result + metric.hashCode();
-      result = 31 * result + (source != null ? source.hashCode() : 0);
-      result = 31 * result + Arrays.hashCode(tags);
-      return result;
-    }
-
-    public String getBinId() {
+    public int getBinId() {
       return binId;
     }
 
@@ -227,6 +140,32 @@ public final class Utils {
       return tags;
     }
 
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) return true;
+      if (o == null || getClass() != o.getClass()) return false;
+
+      HistogramKey histogramKey = (HistogramKey) o;
+
+      if (durationOrdinal != histogramKey.durationOrdinal) return false;
+      if (binId != histogramKey.binId) return false;
+      if (!metric.equals(histogramKey.metric)) return false;
+      if (source != null ? !source.equals(histogramKey.source) : histogramKey.source != null) return false;
+      // Probably incorrect - comparing Object[] arrays with Arrays.equals
+      return Arrays.equals(tags, histogramKey.tags);
+
+    }
+
+    @Override
+    public int hashCode() {
+      int result = (int) durationOrdinal;
+      result = 31 * result + binId;
+      result = 31 * result + metric.hashCode();
+      result = 31 * result + (source != null ? source.hashCode() : 0);
+      result = 31 * result + Arrays.hashCode(tags);
+      return result;
+    }
+
     /**
      * Unpacks tags into a map.
      */
@@ -242,24 +181,32 @@ public final class Utils {
 
       return annotations;
     }
+
+    public long getBinTimeMillis() {
+      return getBinDurationInMillis() * binId;
+    }
+
+    public int getBinDurationInMillis() {
+      return Granularity.values()[durationOrdinal].getInMillis();
+    }
   }
 
   /**
    * For now (trivial) encoding of the form short length and bytes
-   * TODO use chronicle-values or at least cache the byte[]
+   * Consider using chronicle-values or at least a local byte[] / Stringbuffers to be a little more efficient about encodings.
    */
-  public static class BinKeyMarshaller implements BytesReader<BinKey>, BytesWriter<BinKey>, ReadResolvable<BinKeyMarshaller> {
-    private static final BinKeyMarshaller INSTANCE = new BinKeyMarshaller();
+  public static class HistogramKeyMarshaller implements BytesReader<HistogramKey>, BytesWriter<HistogramKey>, ReadResolvable<HistogramKeyMarshaller> {
+    private static final HistogramKeyMarshaller INSTANCE = new HistogramKeyMarshaller();
 
-    private BinKeyMarshaller() {
+    private HistogramKeyMarshaller() {
     }
 
-    public static BinKeyMarshaller get() {
+    public static HistogramKeyMarshaller get() {
       return INSTANCE;
     }
 
     @Override
-    public BinKeyMarshaller readResolve() {
+    public HistogramKeyMarshaller readResolve() {
       return INSTANCE;
     }
 
@@ -269,7 +216,7 @@ public final class Utils {
         out.writeShort((short) bytes.length);
         out.write(bytes);
       } catch (UnsupportedEncodingException e) {
-        // todo log
+        logger.log(Level.SEVERE, "Likely programmer error, String to Byte encoding failed: ", e);
         e.printStackTrace();
       }
     }
@@ -292,11 +239,12 @@ public final class Utils {
 
     @NotNull
     @Override
-    public BinKey read(Bytes in, @Nullable BinKey using) {
+    public HistogramKey read(Bytes in, @Nullable HistogramKey using) {
       if (using == null) {
-        using = new BinKey();
+        using = new HistogramKey();
       }
-      using.binId = readString(in);
+      using.durationOrdinal = in.readByte();
+      using.binId = in.readInt();
       using.metric = readString(in);
       using.source = readString(in);
       int numTags = in.readShort();
@@ -308,8 +256,9 @@ public final class Utils {
     }
 
     @Override
-    public void write(Bytes out, @NotNull BinKey toWrite) {
-      writeString(out, toWrite.binId);
+    public void write(Bytes out, @NotNull HistogramKey toWrite) {
+      out.writeByte(toWrite.durationOrdinal);
+      out.writeInt(toWrite.binId);
       writeString(out, toWrite.metric);
       writeString(out, toWrite.source);
       short numTags = toWrite.tags == null ? 0 : (short) toWrite.tags.length;

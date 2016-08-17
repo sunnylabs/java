@@ -12,7 +12,7 @@ protocol Reporting {
 
   record Histogram {
     // Number of milliseconds that samples cover
-    int duration;
+    int granularity;
     // Histogram is a list of sample bins and counts
     HistogramType type;
     array<double> bins;

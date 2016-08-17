@@ -29,27 +29,27 @@ public class Scanner implements Runnable {
   private static final Logger logger = Logger.getLogger(Scanner.class.getCanonicalName());
 
   private final ObjectQueue<String> input;
-  private final ConcurrentMap<Utils.BinKey, AgentDigest> digests;
+  private final ConcurrentMap<Utils.HistogramKey, AgentDigest> digests;
   private final Decoder<String> decoder;
   private final List<ReportPoint> points = Lists.newArrayListWithExpectedSize(1);
   private final PointHandler blockedPointsHandler;
   private final Validation.Level validationLevel;
-  private final Utils.Duration duration;
+  private final Utils.Granularity granularity;
   private final long ttl;
 
   public Scanner(ObjectQueue<String> input,
-                 ConcurrentMap<Utils.BinKey, AgentDigest> digests,
+                 ConcurrentMap<Utils.HistogramKey, AgentDigest> digests,
                  Decoder<String> decoder,
                  PointHandler blockedPointsHandler,
                  Validation.Level validationLevel,
-                 Utils.Duration duration,
+                 Utils.Granularity granularity,
                  long ttl) {
     this.input = input;
     this.digests = digests;
     this.decoder = decoder;
     this.blockedPointsHandler = blockedPointsHandler;
     this.validationLevel = validationLevel;
-    this.duration = duration;
+    this.granularity = granularity;
     this.ttl = ttl;
   }
 
@@ -82,19 +82,19 @@ public class Scanner implements Runnable {
         // TODO support metric prefix
         ReportPoint event = points.get(0);
 
-        // need the duration here
+        // need the granularity here
         Validation.validatePoint(
             event,
-            duration.name(),
+            granularity.name(),
             line,
             validationLevel);
 
         // Get key
-        Utils.BinKey binKey = Utils.getBinKey(event, duration);
+        Utils.HistogramKey histogramKey = Utils.getBinKey(event, granularity);
         double value = (Double) event.getValue();
 
         // atomic update
-        digests.compute(binKey, (k, v) -> {
+        digests.compute(histogramKey, (k, v) -> {
           if (v == null) {
             AgentDigest t = new AgentDigest(System.currentTimeMillis() + ttl);
             t.add(value);
