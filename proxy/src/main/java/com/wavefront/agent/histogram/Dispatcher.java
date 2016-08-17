@@ -2,9 +2,12 @@ package com.wavefront.agent.histogram;
 
 import com.squareup.tape.ObjectQueue;
 import com.tdunning.math.stats.AgentDigest;
-import com.tdunning.math.stats.TDigest;
 
 import java.util.concurrent.ConcurrentMap;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import sunnylabs.report.ReportPoint;
 
 /**
  * Dispatch task for marshalling "ripe" digests for shipment to the agent
@@ -12,10 +15,12 @@ import java.util.concurrent.ConcurrentMap;
  * @author Tim Schmidt (tim@wavefront.com).
  */
 public class Dispatcher implements Runnable {
-  private final ConcurrentMap<String, AgentDigest> digests;
-  private final ObjectQueue<TDigest> output;
+  private final static Logger logger = Logger.getLogger(Dispatcher.class.getCanonicalName());
 
-  public Dispatcher(ConcurrentMap<String, AgentDigest> digests, ObjectQueue<TDigest> output) {
+  private final ConcurrentMap<Utils.BinKey, AgentDigest> digests;
+  private final ObjectQueue<ReportPoint> output;
+
+  public Dispatcher(ConcurrentMap<Utils.BinKey, AgentDigest> digests, ObjectQueue<ReportPoint> output) {
     this.digests = digests;
     this.output = output;
   }
@@ -23,15 +28,30 @@ public class Dispatcher implements Runnable {
   @Override
   public void run() {
 
-    for (String key : digests.keySet()) {
+    for (Utils.BinKey key : digests.keySet()) {
       digests.compute(key, (k, v) -> {
         if (v==null) {
           return null;
         }
         // Remove and add to shipping queue
         if (v.getDispatchTimeMillis() < System.currentTimeMillis()) {
-          output.add(v);
-          return null;
+          try {
+           ReportPoint out = ReportPoint.newBuilder()
+                .setTimestamp(Utils.binTimeSecs(k.getBinId()))
+                .setMetric(k.getMetric())
+                .setHost(k.getSource())
+                .setAnnotations(k.getTagsAsMap())
+                .setTable("dummy")
+                .setValue(v.toHistogram((int) Utils.durationSecs(k.getBinId())))
+                .build();
+
+            output.add(out);
+          } catch (Exception e) {
+            logger.log(Level.SEVERE, "Failed dispatching entry " + k, e);
+          }
+          finally {
+            return null;
+          }
         }
         return v;
       });

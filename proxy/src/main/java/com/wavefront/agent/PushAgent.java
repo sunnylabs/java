@@ -34,6 +34,13 @@ import net.openhft.chronicle.hash.serialization.impl.StringBytesReader;
 import net.openhft.chronicle.hash.serialization.impl.StringSizedReader;
 import net.openhft.chronicle.hash.serialization.impl.StringUtf8DataAccess;
 
+import org.apache.avro.io.BinaryEncoder;
+import org.apache.avro.io.DatumWriter;
+import org.apache.avro.io.DecoderFactory;
+import org.apache.avro.io.Encoder;
+import org.apache.avro.io.EncoderFactory;
+import org.apache.avro.specific.SpecificDatumReader;
+import org.apache.avro.specific.SpecificDatumWriter;
 import org.glassfish.jersey.jackson.JacksonFeature;
 import org.glassfish.jersey.jetty.JettyHttpContainerFactory;
 import org.glassfish.jersey.server.ResourceConfig;
@@ -63,6 +70,7 @@ import io.netty.channel.ChannelOption;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
+import sunnylabs.report.ReportPoint;
 
 /**
  * Push-only Agent.
@@ -116,28 +124,27 @@ public class PushAgent extends AbstractAgent {
             outputStream.write(s.getBytes("UTF-8"));
           }
         }),
-        new TapeDeck<TDigest>(new FileObjectQueue.Converter<TDigest>() {
+        new TapeDeck<ReportPoint>(new FileObjectQueue.Converter<ReportPoint>() {
 
           @Override
-          public TDigest from(byte[] bytes) throws IOException {
-            return AVLTreeDigest.fromBytes(ByteBuffer.wrap(bytes));
+          public ReportPoint from(byte[] bytes) throws IOException {
+            SpecificDatumReader<ReportPoint> reader = new SpecificDatumReader<>(ReportPoint.SCHEMA$);
+            org.apache.avro.io.Decoder decoder = DecoderFactory.get().binaryDecoder(bytes, null);
+
+            return reader.read(null, decoder);
           }
 
           @Override
-          public void toStream(TDigest tDigest, OutputStream outputStream) throws IOException {
-            // 16KB ought to be enough for anyone
-            ByteBuffer b = ByteBuffer.allocate(16 *1024);
+          public void toStream(ReportPoint tDigest, OutputStream outputStream) throws IOException {
+            BinaryEncoder encoder = EncoderFactory.get().binaryEncoder(outputStream, null);
+            DatumWriter<ReportPoint> writer = new SpecificDatumWriter<>(ReportPoint.SCHEMA$);
 
-            tDigest.asSmallBytes(b);
-            int pos = b.position();
-            b.flip();
-            for (;pos > 0 ; --pos) {
-              outputStream.write(b.get());
-            }
+            writer.write(tDigest, encoder);
+            encoder.flush();
           }
         })
 
-        );
+    );
 
 //    if (histogramMinsListenerPorts != null) {
 //      Iterable<String> ports = Splitter.on(",").omitEmptyStrings().trimResults().split(histogramMinsListenerPorts);
@@ -316,7 +323,7 @@ public class PushAgent extends AbstractAgent {
       File directory,
       Utils.Duration duration,
       TapeDeck<String> receiveDeck,
-      TapeDeck<TDigest> sendDeck) {
+      TapeDeck<ReportPoint> sendDeck) {
     Preconditions.checkNotNull(portAsString);
     Preconditions.checkNotNull(directory);
     Preconditions.checkArgument(directory.isDirectory(), directory.getAbsolutePath() + " must be a directory!");
@@ -330,20 +337,21 @@ public class PushAgent extends AbstractAgent {
     File tapeFile = new File(directory, duration.name() + "_" + portAsString);
     File outTapeFile = new File(directory, "sendTape");
     ObjectQueue<String> receiveTape = receiveDeck.getTape(tapeFile);
-    ObjectQueue<TDigest> sendTape = sendDeck.getTape(outTapeFile);
+    ObjectQueue<ReportPoint> sendTape = sendDeck.getTape(outTapeFile);
     PointHandler invalidPointHandler = new PointHandlerImpl(port, pushValidationLevel, pushBlockedSamples, prefix, getFlushTasks(port));
 
     // TODO inject
-    MapLoader<String, AgentDigest, AgentDigest.Codec> loader = new MapLoader<>(
-        String.class,
+    MapLoader<Utils.BinKey, AgentDigest, Utils.BinKeyMarshaller, AgentDigest.Codec> loader = new MapLoader<>(
+        Utils.BinKey.class,
         AgentDigest.class,
         10000000L,
         200D,
         1000D,
+        Utils.BinKeyMarshaller.get(),
         AgentDigest.Codec.get());
 
     File mapFile = new File(directory, "mapfile");
-    ConcurrentMap<String, AgentDigest> map = loader.get(mapFile);
+    ConcurrentMap<Utils.BinKey, AgentDigest> map = loader.get(mapFile);
 
     // Set-up scanner
     Scanner scanTask = new Scanner(
@@ -353,7 +361,7 @@ public class PushAgent extends AbstractAgent {
         invalidPointHandler,
         Validation.Level.valueOf(pushValidationLevel),
         duration,
-        60L);
+        30000L);
 
     scheduler.scheduleWithFixedDelay(scanTask, 100L, 1L, TimeUnit.MICROSECONDS);
 

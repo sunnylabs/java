@@ -22,41 +22,36 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 
+import sunnylabs.report.Histogram;
+import sunnylabs.report.HistogramType;
+
 /**
- * Maintains a t-digest by collecting new points in a buffer that is then sorted occasionally and merged
- * into a sorted array that contains previously computed centroids.
+ * NOTE: This is a pruned and modified version of {@link MergingDigest}. It does not support queries (cdf/quantiles) or
+ * the traditional encodings.
+ *
+ * Maintains a t-digest by collecting new points in a buffer that is then sorted occasionally and merged into a sorted
+ * array that contains previously computed centroids.
  * <p/>
- * This can be very fast because the cost of sorting and merging is amortized over several insertion. If
- * we keep N centroids total and have the input array is k long, then the amortized cost is something like
+ * This can be very fast because the cost of sorting and merging is amortized over several insertion. If we keep N
+ * centroids total and have the input array is k long, then the amortized cost is something like
  * <p/>
  * N/k + log k
  * <p/>
- * These costs even out when N/k = log k.  Balancing costs is often a good place to start in optimizing an
- * algorithm.  For different values of compression factor, the following table shows estimated asymptotic
- * values of N and suggested values of k:
- * <table>
- * <thead>
- * <tr><td>Compression</td><td>N</td><td>k</td></tr>
- * </thead>
- * <tbody>
- * <tr><td>50</td><td>78</td><td>25</td></tr>
- * <tr><td>100</td><td>157</td><td>42</td></tr>
- * <tr><td>200</td><td>314</td><td>73</td></tr>
- * </tbody>
- * </table>
+ * These costs even out when N/k = log k.  Balancing costs is often a good place to start in optimizing an algorithm.
+ * For different values of compression factor, the following table shows estimated asymptotic values of N and suggested
+ * values of k: <table> <thead> <tr><td>Compression</td><td>N</td><td>k</td></tr> </thead> <tbody>
+ * <tr><td>50</td><td>78</td><td>25</td></tr> <tr><td>100</td><td>157</td><td>42</td></tr>
+ * <tr><td>200</td><td>314</td><td>73</td></tr> </tbody> </table>
  * <p/>
- * The virtues of this kind of t-digest implementation include:
- * <ul>
- * <li>No allocation is required after initialization</li>
- * <li>The data structure automatically compresses existing centroids when possible</li>
- * <li>No Java object overhead is incurred for centroids since data is kept in primitive arrays</li>
- * </ul>
+ * The virtues of this kind of t-digest implementation include: <ul> <li>No allocation is required after
+ * initialization</li> <li>The data structure automatically compresses existing centroids when possible</li> <li>No Java
+ * object overhead is incurred for centroids since data is kept in primitive arrays</li> </ul>
  * <p/>
- * The current implementation takes the liberty of using ping-pong buffers for implementing the merge resulting
- * in a substantial memory penalty, but the complexity of an in place merge was not considered as worthwhile
- * since even with the overhead, the memory cost is less than 40 bytes per centroid which is much less than half
- * what the AVLTreeDigest uses.  Speed tests are still not complete so it is uncertain whether the merge
- * strategy is faster than the tree strategy.
+ * The current implementation takes the liberty of using ping-pong buffers for implementing the merge resulting in a
+ * substantial memory penalty, but the complexity of an in place merge was not considered as worthwhile since even with
+ * the overhead, the memory cost is less than 40 bytes per centroid which is much less than half what the AVLTreeDigest
+ * uses.  Speed tests are still not complete so it is uncertain whether the merge strategy is faster than the tree
+ * strategy.
  */
 public class AgentDigest extends AbstractTDigest {
   // points to the centroid that is currently being merged
@@ -122,7 +117,6 @@ public class AgentDigest extends AbstractTDigest {
 
   /**
    * Fully specified constructor.  Normally only used for deserializing a buffer t-digest.
-   *
    */
   public AgentDigest(long dispatchTimeMillis) {
     weight = new double[DEFAULT_SIZE];
@@ -172,10 +166,10 @@ public class AgentDigest extends AbstractTDigest {
 
     if (data != null) {
       if (tempData == null) {
-        tempData = new ArrayList<List<Double>>();
+        tempData = new ArrayList<>();
       }
       while (tempData.size() <= where) {
-        tempData.add(new ArrayList<Double>());
+        tempData.add(new ArrayList<>());
       }
       if (history == null) {
         history = Collections.singletonList(x);
@@ -377,35 +371,58 @@ public class AgentDigest extends AbstractTDigest {
   }
 
 
-  // TODO Offer a different encoding path that avoids copying unnecessary fields
-  // Use SizedReader and SizedWriter
-  // Prune testing only methods
-  // Hardcode compression
-  // Could conceivably strip min/max
-  // No quantiles/cdf computation, should not affect centroids
-  // Add a time field
+  /**
+   * Number of centroids of this AgentDigest (does compress if necessary)
+   */
+  private int centroidCount() {
+    mergeNewValues();
+    return lastUsedCell + (weight[lastUsedCell] == 0 ? 0 : 1);
+  }
 
   /**
-   * NOTE: General encoding format/size is
-   *
-   * time (long 8Bytes)
-   * centroids...
-   *  weight, mean (2*floats 8Bytes)
-   *
-   * = 10B + 8B*#Centroids
+   * Creates a reporting Histogram from this AgentDigest (marked with the supplied duration).
+   */
+  public Histogram toHistogram(int duration) {
+    int numCentroids = centroidCount();
+    // NOTE: now merged as a side-effect
+
+    List<Double> means = new ArrayList<>(centroidCount());
+    List<Integer> count = new ArrayList<>(centroidCount());
+
+    for (int i = 0; i < numCentroids; ++i) {
+      means.add(mean[i]);
+      count.add((int) Math.round(weight[i]));
+    }
+
+    return Histogram.newBuilder()
+        .setDuration(duration)
+        .setBins(means)
+        .setCounts(count)
+        .setType(HistogramType.TDIGEST)
+        .build();
+  }
+
+  /**
+   * Only comprises of the dispatch-time
    */
   private static final int FIXED_SIZE = 8;
+  /**
+   * Weight, mean float pair
+   */
   private static final int PER_CENTROID_SIZE = 8;
 
   private int encodedSize() {
-    return FIXED_SIZE + (lastUsedCell * PER_CENTROID_SIZE);
+    return FIXED_SIZE + centroidCount() * PER_CENTROID_SIZE;
   }
 
   /**
    * Stateless AgentDigest codec for chronicle maps
    */
   public static class Codec implements SizedReader<AgentDigest>, SizedWriter<AgentDigest>, ReadResolvable<Codec> {
-    static final Codec INSTANCE = new Codec();
+    private static final Codec INSTANCE = new Codec();
+
+    private Codec() {
+    }
 
     public static Codec get() {
       return INSTANCE;
@@ -425,7 +442,10 @@ public class AgentDigest extends AbstractTDigest {
       using.tempUsed = 0;
       using.unmergedWeight = 0D;
 
-      for (int i=0; i <= using.lastUsedCell; ++i) {
+      // need explicit nulling of weight past lastUsedCell
+      Arrays.fill(using.weight, using.lastUsedCell, using.weight.length, 0D);
+
+      for (int i = 0; i < using.lastUsedCell; ++i) {
         float weight = in.readFloat();
         using.weight[i] = weight;
         using.mean[i] = in.readFloat();
@@ -443,16 +463,16 @@ public class AgentDigest extends AbstractTDigest {
     @Override
     public void write(Bytes out, long size, @NotNull AgentDigest toWrite) {
       // Merge in all buffered values
-      toWrite.mergeNewValues();
+      int numCentroids = toWrite.centroidCount();
 
       // Just for sanity, comment out for production use
-      Preconditions.checkArgument(size ==  toWrite.encodedSize());
+      Preconditions.checkArgument(size == toWrite.encodedSize());
 
       // Time
       out.writeLong(toWrite.dispatchTimeMillis);
 
       // Centroids
-      for (int i=0; i <= toWrite.lastUsedCell; ++i) {
+      for (int i = 0; i < numCentroids; ++i) {
         out.writeFloat((float) toWrite.weight[i]);
         out.writeFloat((float) toWrite.mean[i]);
       }
@@ -486,7 +506,6 @@ public class AgentDigest extends AbstractTDigest {
 
   /**
    * Time at which this digest should be dispatched to wavefront.
-   * @return
    */
   public long getDispatchTimeMillis() {
     return dispatchTimeMillis;

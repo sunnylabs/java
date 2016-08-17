@@ -29,7 +29,7 @@ public class Scanner implements Runnable {
   private static final Logger logger = Logger.getLogger(Scanner.class.getCanonicalName());
 
   private final ObjectQueue<String> input;
-  private final ConcurrentMap<String, AgentDigest> digests;
+  private final ConcurrentMap<Utils.BinKey, AgentDigest> digests;
   private final Decoder<String> decoder;
   private final List<ReportPoint> points = Lists.newArrayListWithExpectedSize(1);
   private final PointHandler blockedPointsHandler;
@@ -38,7 +38,7 @@ public class Scanner implements Runnable {
   private final long ttl;
 
   public Scanner(ObjectQueue<String> input,
-                 ConcurrentMap<String, AgentDigest> digests,
+                 ConcurrentMap<Utils.BinKey, AgentDigest> digests,
                  Decoder<String> decoder,
                  PointHandler blockedPointsHandler,
                  Validation.Level validationLevel,
@@ -89,12 +89,12 @@ public class Scanner implements Runnable {
             line,
             validationLevel);
 
-        // make label
-        String binningLabel = Utils.getBinningLabel(event, duration);
+        // Get key
+        Utils.BinKey binKey = Utils.getBinKey(event, duration);
         double value = (Double) event.getValue();
 
         // atomic update
-        digests.compute(binningLabel, (k, v) -> {
+        digests.compute(binKey, (k, v) -> {
           if (v == null) {
             AgentDigest t = new AgentDigest(System.currentTimeMillis() + ttl);
             t.add(value);
