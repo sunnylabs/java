@@ -7,6 +7,9 @@ import com.google.common.cache.LoadingCache;
 
 import com.squareup.tape.FileObjectQueue;
 import com.squareup.tape.ObjectQueue;
+import com.yammer.metrics.Metrics;
+import com.yammer.metrics.core.Counter;
+import com.yammer.metrics.core.MetricName;
 
 import java.io.File;
 import java.io.RandomAccessFile;
@@ -14,11 +17,17 @@ import java.nio.channels.FileChannel;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import javax.annotation.Nullable;
-import javax.validation.constraints.NotNull;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * Manages Square Tape queues used by this agent.
+ *
+ * TODO:
+ * Cleanup
+ * Use the wavefront-specfic tape fork.
+ * Add load error handling
+ * Add tests
  *
  * @author Tim Schmidt (tim@wavefront.com).
  */
@@ -33,22 +42,19 @@ public class TapeDeck<T> {
       @Override
       public ObjectQueue<T> load(@NotNull File file) throws Exception {
 
-//        if (!file.exists()) {
-//          Preconditions.checkArgument(file.createNewFile());
-//        }
         FileObjectQueue<T> queue;
 
         // We need exclusive ownership of the file for this deck.
         // This is really no guarantee that we have exclusive access to the file (see e.g. goo.gl/i4S7ha)
         try {
-          queue = new FileObjectQueue<T>(file, converter);
+          queue = new FileObjectQueue<>(file, converter);
           FileChannel channel = new RandomAccessFile(file, "rw").getChannel();
           Preconditions.checkNotNull(channel.tryLock());
         } catch (Exception e) {
           throw e;
         }
 
-        return new ObjectQueueWrapper<T>(queue);
+        return new ObjectQueueWrapper<T>(queue, file.getName());
       }
     });
   }
@@ -58,6 +64,7 @@ public class TapeDeck<T> {
     try {
       return queues.get(f);
     } catch (Exception e) {
+      logger.log(Level.SEVERE, "Error while loading " + f, e);
       return null;
     }
   }
@@ -67,11 +74,17 @@ public class TapeDeck<T> {
    */
   private static class ObjectQueueWrapper<T> implements ObjectQueue<T> {
     private final ObjectQueue<T> backingQueue;
+    private final Counter addCounter;
+    private final Counter removeCounter;
+    private final Counter peekCounter;
 
-    ObjectQueueWrapper(ObjectQueue<T> backingQueue) {
+    ObjectQueueWrapper(ObjectQueue<T> backingQueue, String title) {
+      this.addCounter = Metrics.newCounter(new MetricName("tape." + title, "", "add"));
+      this.removeCounter = Metrics.newCounter(new MetricName("tape." + title, "", "remove"));
+      this.peekCounter = Metrics.newCounter(new MetricName("tape." + title, "", "peek"));
+
       this.backingQueue = backingQueue;
     }
-
 
     @Override
     public int size() {
@@ -82,6 +95,7 @@ public class TapeDeck<T> {
 
     @Override
     public void add(T t) {
+      addCounter.inc();
       synchronized (this) {
         backingQueue.add(t);
       }
@@ -89,6 +103,7 @@ public class TapeDeck<T> {
 
     @Override
     public T peek() {
+      peekCounter.inc();
       synchronized (this) {
         return backingQueue.peek();
       }
@@ -96,6 +111,7 @@ public class TapeDeck<T> {
 
     @Override
     public void remove() {
+      removeCounter.inc();
       synchronized (this) {
         backingQueue.remove();
       }
