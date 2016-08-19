@@ -84,7 +84,4 @@ public class AccumulationCacheTest {
 
     assertThat(backingStore.size()).isAtLeast(1);
   }
-
-
-
 }

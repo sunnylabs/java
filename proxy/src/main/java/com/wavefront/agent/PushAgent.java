@@ -38,11 +38,13 @@ import org.glassfish.jersey.jackson.JacksonFeature;
 import org.glassfish.jersey.jetty.JettyHttpContainerFactory;
 import org.glassfish.jersey.server.ResourceConfig;
 
+import java.io.DataOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
@@ -105,18 +107,33 @@ public class PushAgent extends AbstractAgent {
         "2880",
         new File("/Users/timschmidt/agent/"),
         Utils.Granularity.MINUTE,
-        new TapeDeck<String>(new FileObjectQueue.Converter<String>() {
+        new TapeDeck<>(new FileObjectQueue.Converter<List<String>>() {
           @Override
-          public String from(byte[] bytes) throws IOException {
-            return new String(bytes);
+          public List<String> from(byte[] bytes) throws IOException {
+            ByteBuffer in = ByteBuffer.wrap(bytes);
+            int count = in.getShort();
+            List<String> result = new ArrayList<>(count);
+            for (int i = 0; i < count; ++i) {
+              int len = in.getShort();
+              result.add(new String(bytes, in.position(), len));
+              in.position(in.position() + len);
+            }
+            return result;
           }
 
           @Override
-          public void toStream(String s, OutputStream outputStream) throws IOException {
-            outputStream.write(s.getBytes("UTF-8"));
+          public void toStream(List<String> strings, OutputStream out) throws IOException {
+            DataOutputStream dOut = new DataOutputStream(out);
+            dOut.writeShort(strings.size());
+            for (String s : strings) {
+              byte[] b = s.getBytes();
+              dOut.writeShort(b.length);
+              dOut.write(b);
+            }
+            // flush?
           }
         }),
-        new TapeDeck<ReportPoint>(new FileObjectQueue.Converter<ReportPoint>() {
+        new TapeDeck<>(new FileObjectQueue.Converter<ReportPoint>() {
 
           @Override
           public ReportPoint from(byte[] bytes) throws IOException {
@@ -314,7 +331,7 @@ public class PushAgent extends AbstractAgent {
       String portAsString,
       File directory,
       Utils.Granularity granularity,
-      TapeDeck<String> receiveDeck,
+      TapeDeck<List<String>> receiveDeck,
       TapeDeck<ReportPoint> sendDeck) {
     Preconditions.checkNotNull(portAsString);
     Preconditions.checkNotNull(directory);
@@ -328,7 +345,7 @@ public class PushAgent extends AbstractAgent {
     int port = Integer.parseInt(portAsString);
     File tapeFile = new File(directory, granularity.name() + "_" + portAsString);
     File outTapeFile = new File(directory, "sendTape");
-    ObjectQueue<String> receiveTape = receiveDeck.getTape(tapeFile);
+    ObjectQueue<List<String>> receiveTape = receiveDeck.getTape(tapeFile);
     ObjectQueue<ReportPoint> sendTape = sendDeck.getTape(outTapeFile);
     PointHandler invalidPointHandler = new PointHandlerImpl(port, pushValidationLevel, pushBlockedSamples, prefix, getFlushTasks(port));
 
@@ -369,10 +386,13 @@ public class PushAgent extends AbstractAgent {
     DroppingSender sendTask = new DroppingSender(sendTape);
     scheduler.scheduleWithFixedDelay(sendTask, 100L, 1L, TimeUnit.MICROSECONDS);
 
+    QueuingChannelHandler<String> handler = new QueuingChannelHandler<>(receiveTape, 100);
+    scheduler.scheduleWithFixedDelay(handler.getBufferFlushTask(), 85L, 1L, TimeUnit.MICROSECONDS);
+
     // Set-up producer
     new Thread(
         new StringLineIngester(
-            new QueuingChannelHandler<String>(receiveTape),
+            handler,
             port)).start();
 
 

@@ -328,12 +328,16 @@ public class AgentDigest extends AbstractTDigest {
     return Double.NaN;
   }
 
+  /**
+   * Not clear to me that this is a good idea, maybe just add the temp points and existing centroids rather then merging
+   * first?
+   */
   @Override
   public Collection<Centroid> centroids() {
     // we don't actually keep centroid structures around so we have to fake it
-    compress();
     List<Centroid> r = new ArrayList<>();
-    for (int i = 0; i <= lastUsedCell; i++) {
+    int count = centroidCount();
+    for (int i = 0; i < count; i++) {
       r.add(new Centroid(mean[i], (int) weight[i], data != null ? data.get(i) : null));
     }
     return r;

@@ -119,7 +119,7 @@ public final class Utils {
       this.binId = binId;
       this.metric = metric;
       this.source = source;
-      this.tags = tags;
+      this.tags = ((tags== null || tags.length == 0) ? null : tags);
     }
 
     private HistogramKey() {
@@ -205,7 +205,7 @@ public final class Utils {
       return getBinDurationInMillis() * binId;
     }
 
-    public int getBinDurationInMillis() {
+    public long getBinDurationInMillis() {
       return Granularity.values()[granularityOrdinal].getInMillis();
     }
   }
@@ -270,9 +270,11 @@ public final class Utils {
       using.metric = readString(in);
       using.source = readString(in);
       int numTags = in.readShort();
-      using.tags = new String[numTags];
-      for (int i = 0; i < numTags; ++i) {
-        using.tags[i] = readString(in);
+      if (numTags > 0) {
+        using.tags = new String[numTags];
+        for (int i = 0; i < numTags; ++i) {
+          using.tags[i] = readString(in);
+        }
       }
       return using;
     }

@@ -26,9 +26,10 @@ public class Validation {
     NO_VALIDATION,
     NUMERIC_ONLY
   }
+
   private static final long MILLIS_IN_YEAR = DateUtils.MILLIS_PER_DAY * 365;
 
-  private final static Counter outOfRangePointTimes =  Metrics.newCounter(new MetricName("point", "", "badtime"));
+  private final static Counter outOfRangePointTimes = Metrics.newCounter(new MetricName("point", "", "badtime"));
   private final static Counter illegalCharacterPoints = Metrics.newCounter(new MetricName("point", "", "badchars"));
 
   /**
@@ -104,18 +105,19 @@ public class Validation {
       throw new IllegalArgumentException(errorMessage);
     }
 
-    if (!annotationKeysAreValid(point)) {
-      String errorMessage = "WF-401 " + source + ": Point annotation key has illegal character (" + debugLine + ")";
-      throw new IllegalArgumentException(errorMessage);
-    }
+    if (point.getAnnotations() != null) {
+      if (!annotationKeysAreValid(point)) {
+        String errorMessage = "WF-401 " + source + ": Point annotation key has illegal character (" + debugLine + ")";
+        throw new IllegalArgumentException(errorMessage);
+      }
 
-    // Each tag of the form "k=v" must be < 256
-    for (Map.Entry<String, String> tag : point.getAnnotations().entrySet()) {
-      if (tag.getKey().length() + tag.getValue().length() >= 255) {
-        throw new IllegalArgumentException("Tag too long: " + tag.getKey() + "=" + tag.getValue());
+      // Each tag of the form "k=v" must be < 256
+      for (Map.Entry<String, String> tag : point.getAnnotations().entrySet()) {
+        if (tag.getKey().length() + tag.getValue().length() >= 255) {
+          throw new IllegalArgumentException("Tag too long: " + tag.getKey() + "=" + tag.getValue());
+        }
       }
     }
-
     if (!pointInRange(point)) {
       outOfRangePointTimes.inc();
       String errorMessage = "WF-402 " + source + ": Point outside of reasonable time frame (" + debugLine + ")";

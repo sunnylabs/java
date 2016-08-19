@@ -15,10 +15,11 @@ public final class TestUtils {
   }
 
   public static long DEFAULT_TIME_MILLIS = 1471554059000L;
+  public static double DEFAULT_VALUE = 1D;
 
   public static HistogramKey makeKey(String metric) {
     return Utils.makeKey(
-        ReportPoint.newBuilder().setMetric(metric).setTimestamp(DEFAULT_TIME_MILLIS).setValue(1D).build(),
+        ReportPoint.newBuilder().setMetric(metric).setTimestamp(DEFAULT_TIME_MILLIS).setValue(DEFAULT_VALUE).build(),
         Granularity.MINUTE);
   }
 }

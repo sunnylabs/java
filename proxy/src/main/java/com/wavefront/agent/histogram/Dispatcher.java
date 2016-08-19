@@ -42,7 +42,7 @@ public class Dispatcher implements Runnable {
                 .setHost(k.getSource())
                 .setAnnotations(k.getTagsAsMap())
                 .setTable("dummy")
-                .setValue(v.toHistogram(k.getBinDurationInMillis()))
+                .setValue(v.toHistogram((int) k.getBinDurationInMillis()))
                 .build();
 
             output.add(out);
