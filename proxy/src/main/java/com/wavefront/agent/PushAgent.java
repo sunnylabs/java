@@ -10,8 +10,8 @@ import com.squareup.tape.FileObjectQueue;
 import com.squareup.tape.ObjectQueue;
 import com.tdunning.math.stats.AgentDigest;
 import com.wavefront.agent.formatter.GraphiteFormatter;
-import com.wavefront.agent.histogram.AccumulationCache;
-import com.wavefront.agent.histogram.AccumulationTask;
+import com.wavefront.agent.histogram.accumulator.AccumulationCache;
+import com.wavefront.agent.histogram.accumulator.AccumulationTask;
 import com.wavefront.agent.histogram.Dispatcher;
 import com.wavefront.agent.histogram.DroppingSender;
 import com.wavefront.agent.histogram.MapLoader;
@@ -348,7 +348,7 @@ public class PushAgent extends AbstractAgent {
     // Local Cache
     AccumulationCache cache = new AccumulationCache(map, 1000L, null);
 
-    scheduler.scheduleWithFixedDelay(cache.getWriteBackTask(), 10L, 10L, TimeUnit.MILLISECONDS);
+    scheduler.scheduleWithFixedDelay(cache.getResolveTask(), 10L, 10L, TimeUnit.MILLISECONDS);
 
     // Set-up scanner
     AccumulationTask scanTask = new AccumulationTask(

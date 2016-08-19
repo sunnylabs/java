@@ -1,4 +1,4 @@
-package com.wavefront.agent.histogram;
+package com.wavefront.agent.histogram.accumulator;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.CacheWriter;
@@ -68,7 +68,7 @@ public class AccumulationCache {
    *
    * @return the task
    */
-  public Runnable getWriteBackTask() {
+  public Runnable getResolveTask() {
     return cache::invalidateAll;
   }
 }

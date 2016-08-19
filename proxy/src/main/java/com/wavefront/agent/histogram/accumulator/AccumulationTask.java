@@ -1,4 +1,4 @@
-package com.wavefront.agent.histogram;
+package com.wavefront.agent.histogram.accumulator;
 
 import com.google.common.base.Throwables;
 import com.google.common.collect.Lists;
@@ -7,6 +7,7 @@ import com.squareup.tape.ObjectQueue;
 import com.tdunning.math.stats.AgentDigest;
 import com.wavefront.agent.PointHandler;
 import com.wavefront.agent.Validation;
+import com.wavefront.agent.histogram.Utils;
 import com.wavefront.ingester.Decoder;
 import com.yammer.metrics.Metrics;
 import com.yammer.metrics.core.Counter;
