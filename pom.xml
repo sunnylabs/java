@@ -51,6 +51,7 @@
 
     <!-- Testing library versions -->
     <junit.version>4.12</junit.version>
+    <truth.version>0.29</truth.version>
 
     <java.version>1.8</java.version>
     <jetty.version>9.2.10.v20150310</jetty.version>
@@ -172,6 +173,12 @@
         <groupId>junit</groupId>
         <artifactId>junit</artifactId>
         <version>${junit.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>com.google.truth</groupId>
+        <artifactId>truth</artifactId>
+        <version>${truth.version}</version>
         <scope>test</scope>
       </dependency>
       <dependency>

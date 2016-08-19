@@ -8,6 +8,9 @@ import com.tdunning.math.stats.AgentDigest;
 import com.wavefront.agent.PointHandler;
 import com.wavefront.agent.Validation;
 import com.wavefront.ingester.Decoder;
+import com.yammer.metrics.Metrics;
+import com.yammer.metrics.core.Counter;
+import com.yammer.metrics.core.MetricName;
 
 import org.apache.commons.lang.StringUtils;
 
@@ -18,15 +21,18 @@ import java.util.logging.Logger;
 import sunnylabs.report.ReportPoint;
 
 /**
- * Set-up
- * Should be scheduledWithFixedDelay
- * TODO add metrics
- * TODO add a builder (or make this injectable)
+ * Histogram accumulation task. Parses samples in Graphite/Wavefront notation from its input queue and accumulates them
+ * in histograms.
+ *
+ * Con
+ * add a builder (or make this injectable)
+ * consider supporting transforms and linePredicates
+ * support metric prefix
  *
  * @author Tim Schmidt (tim@wavefront.com).
  */
-public class Scanner implements Runnable {
-  private static final Logger logger = Logger.getLogger(Scanner.class.getCanonicalName());
+public class AccumulationTask implements Runnable {
+  private static final Logger logger = Logger.getLogger(AccumulationTask.class.getCanonicalName());
 
   private final ObjectQueue<String> input;
   private final ConcurrentMap<Utils.HistogramKey, AgentDigest> digests;
@@ -34,23 +40,28 @@ public class Scanner implements Runnable {
   private final List<ReportPoint> points = Lists.newArrayListWithExpectedSize(1);
   private final PointHandler blockedPointsHandler;
   private final Validation.Level validationLevel;
+  private final long ttlMillis;
   private final Utils.Granularity granularity;
-  private final long ttl;
 
-  public Scanner(ObjectQueue<String> input,
-                 ConcurrentMap<Utils.HistogramKey, AgentDigest> digests,
-                 Decoder<String> decoder,
-                 PointHandler blockedPointsHandler,
-                 Validation.Level validationLevel,
-                 Utils.Granularity granularity,
-                 long ttl) {
+  // Metrics
+  private final Counter histogramCounter = Metrics.newCounter(new MetricName("histogram", "", "created"));
+  private final Counter accumulationCounter = Metrics.newCounter(new MetricName("histogram", "", "added"));
+  private final Counter ignoredCounter = Metrics.newCounter(new MetricName("histogram", "", "ignored"));
+
+  public AccumulationTask(ObjectQueue<String> input,
+                          ConcurrentMap<Utils.HistogramKey, AgentDigest> digests,
+                          Decoder<String> decoder,
+                          PointHandler blockedPointsHandler,
+                          Validation.Level validationLevel,
+                          long ttlMillis,
+                          Utils.Granularity granularity) {
     this.input = input;
     this.digests = digests;
     this.decoder = decoder;
     this.blockedPointsHandler = blockedPointsHandler;
     this.validationLevel = validationLevel;
+    this.ttlMillis = ttlMillis;
     this.granularity = granularity;
-    this.ttl = ttl;
   }
 
   @Override
@@ -62,8 +73,6 @@ public class Scanner implements Runnable {
         if ((line = line.trim()).isEmpty()) {
           continue;
         }
-
-        // TODO Consider supporting transforms and linePredicates
 
         // Parse line
         points.clear();
@@ -79,7 +88,6 @@ public class Scanner implements Runnable {
         }
 
         // now have the point, continue like in PointHandlerImpl
-        // TODO support metric prefix
         ReportPoint event = points.get(0);
 
         // need the granularity here
@@ -94,9 +102,12 @@ public class Scanner implements Runnable {
         double value = (Double) event.getValue();
 
         // atomic update
+
         digests.compute(histogramKey, (k, v) -> {
+          accumulationCounter.inc();
           if (v == null) {
-            AgentDigest t = new AgentDigest(System.currentTimeMillis() + ttl);
+            histogramCounter.inc();
+            AgentDigest t = new AgentDigest(System.currentTimeMillis() + ttlMillis);
             t.add(value);
             return t;
           } else {
@@ -105,6 +116,7 @@ public class Scanner implements Runnable {
           }
         });
       } catch (Exception e) {
+        ignoredCounter.inc();
         if (StringUtils.isNotEmpty(e.getMessage())) {
           blockedPointsHandler.handleBlockedPoint(e.getMessage());
         }
@@ -115,7 +127,5 @@ public class Scanner implements Runnable {
     }
   }
 }
-// Can use simple polling... reschedule this every n millis
-// Should be scheduledWithFixedDelay
 
 

@@ -358,7 +358,7 @@ public class AgentDigest extends AbstractTDigest {
   /**
    * Number of centroids of this AgentDigest (does compress if necessary)
    */
-  private int centroidCount() {
+  public int centroidCount() {
     mergeNewValues();
     return lastUsedCell + (weight[lastUsedCell] == 0 ? 0 : 1);
   }

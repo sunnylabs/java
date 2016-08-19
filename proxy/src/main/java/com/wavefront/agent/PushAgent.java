@@ -10,11 +10,12 @@ import com.squareup.tape.FileObjectQueue;
 import com.squareup.tape.ObjectQueue;
 import com.tdunning.math.stats.AgentDigest;
 import com.wavefront.agent.formatter.GraphiteFormatter;
+import com.wavefront.agent.histogram.AccumulationCache;
+import com.wavefront.agent.histogram.AccumulationTask;
 import com.wavefront.agent.histogram.Dispatcher;
 import com.wavefront.agent.histogram.DroppingSender;
 import com.wavefront.agent.histogram.MapLoader;
 import com.wavefront.agent.histogram.QueuingChannelHandler;
-import com.wavefront.agent.histogram.Scanner;
 import com.wavefront.agent.histogram.TapeDeck;
 import com.wavefront.agent.histogram.Utils;
 import com.wavefront.api.agent.AgentConfiguration;
@@ -344,15 +345,20 @@ public class PushAgent extends AbstractAgent {
     File mapFile = new File(directory, "mapfile");
     ConcurrentMap<Utils.HistogramKey, AgentDigest> map = loader.get(mapFile);
 
+    // Local Cache
+    AccumulationCache cache = new AccumulationCache(map, 1000L, null);
+
+    scheduler.scheduleWithFixedDelay(cache.getWriteBackTask(), 10L, 10L, TimeUnit.MILLISECONDS);
+
     // Set-up scanner
-    Scanner scanTask = new Scanner(
+    AccumulationTask scanTask = new AccumulationTask(
         receiveTape,
-        map,
+        cache.getCache().asMap(),
         new GraphiteDecoder("unknown", customSourceTags),
         invalidPointHandler,
         Validation.Level.valueOf(pushValidationLevel),
-        granularity,
-        30000L);
+        30000L,
+        granularity);
 
     scheduler.scheduleWithFixedDelay(scanTask, 100L, 1L, TimeUnit.MICROSECONDS);
 

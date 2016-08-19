@@ -30,14 +30,7 @@ import static com.wavefront.agent.Validation.validatePoint;
 public class PointHandlerImpl implements PointHandler {
 
   private static final Logger logger = Logger.getLogger(PointHandlerImpl.class.getCanonicalName());
-  private static final Random random = new Random();
 
-  // What types of data should be validated and sent to the cloud?
-  public static final String VALIDATION_NO_VALIDATION = "NO_VALIDATION";  // Validate nothing
-  public static final String VALIDATION_NUMERIC_ONLY = "NUMERIC_ONLY";    // Validate/send numerics; block text
-
-  private final Counter outOfRangePointTimes;
-  private final Counter illegalCharacterPoints;
   private final Histogram receivedPointLag;
   private final String validationLevel;
   private final int port;
@@ -65,8 +58,6 @@ public class PointHandlerImpl implements PointHandler {
     this.blockedPointsPerBatch = blockedPointsPerBatch;
     this.prefix = prefix;
 
-    this.outOfRangePointTimes = Metrics.newCounter(new MetricName("point", "", "badtime"));
-    this.illegalCharacterPoints = Metrics.newCounter(new MetricName("point", "", "badchars"));
     this.receivedPointLag = Metrics.newHistogram(
         new MetricName("points." + String.valueOf(port) + ".received", "", "lag"));
 
@@ -162,23 +153,6 @@ public class PointHandlerImpl implements PointHandler {
       }
     }
     return true;
-  }
-
-  /**
-   * Validates that the given host value is valid
-   *
-   * @param host the host to check
-   * @throws IllegalArgumentException when host is blank or null
-   * @throws IllegalArgumentException when host is > 1024 characters
-   */
-  static void validateHost(String host) {
-    if (StringUtils.isBlank(host)) {
-      throw new IllegalArgumentException("WF-301: Host is required");
-    }
-    if (host.length() >= 1024) {
-      throw new IllegalArgumentException("WF-301: Host is too long: " + host);
-    }
-
   }
 
   @VisibleForTesting

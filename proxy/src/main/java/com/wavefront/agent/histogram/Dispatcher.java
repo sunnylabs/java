@@ -30,13 +30,13 @@ public class Dispatcher implements Runnable {
 
     for (Utils.HistogramKey key : digests.keySet()) {
       digests.compute(key, (k, v) -> {
-        if (v==null) {
+        if (v == null) {
           return null;
         }
         // Remove and add to shipping queue
         if (v.getDispatchTimeMillis() < System.currentTimeMillis()) {
           try {
-           ReportPoint out = ReportPoint.newBuilder()
+            ReportPoint out = ReportPoint.newBuilder()
                 .setTimestamp(k.getBinTimeMillis())
                 .setMetric(k.getMetric())
                 .setHost(k.getSource())
@@ -49,9 +49,7 @@ public class Dispatcher implements Runnable {
           } catch (Exception e) {
             logger.log(Level.SEVERE, "Failed dispatching entry " + k, e);
           }
-          finally {
-            return null;
-          }
+          return null;
         }
         return v;
       });

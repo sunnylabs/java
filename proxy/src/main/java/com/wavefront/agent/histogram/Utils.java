@@ -20,6 +20,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
+import org.apache.commons.lang.time.DateUtils;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.NotNull;
 
@@ -34,16 +35,16 @@ public final class Utils {
   private static final Logger logger = Logger.getLogger(Utils.class.getCanonicalName());
 
   private Utils() {
-    // No instance
+    // Not instantiable
   }
 
   /**
    * Standard supported aggregation Granularities.
    */
   public enum Granularity {
-    MINUTE(60 * 1000),
-    HOUR(60 * 60 * 1000),
-    DAY(24 * 60 * 60 * 1000);
+    MINUTE((int)DateUtils.MILLIS_PER_MINUTE),
+    HOUR((int)DateUtils.MILLIS_PER_HOUR),
+    DAY((int)DateUtils.MILLIS_PER_DAY);
 
     private final int inMillis;
 
@@ -54,7 +55,7 @@ public final class Utils {
     /**
      * Duration of a corresponding bin in milliseconds.
      *
-     * @return
+     * @return bin length in milliseconds
      */
     public int getInMillis() {
       return inMillis;
@@ -63,8 +64,8 @@ public final class Utils {
     /**
      * Bin id for an epoch time is the epoch time in the corresponding granularity.
      *
-     * @param timeMillis
-     * @return
+     * @param timeMillis epoch time in milliseconds
+     * @return the bin id
      */
     public int getBinId(long timeMillis) {
       return (int) (timeMillis / inMillis);

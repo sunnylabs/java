@@ -16,7 +16,6 @@ import sunnylabs.report.ReportPoint;
 import static com.wavefront.agent.Validation.Level.NO_VALIDATION;
 
 /**
- * TODO write this out and clean up that class
  * Consolidates point validation logic for point handlers
  *
  * @author Tim Schmidt (tim@wavefront.com).
