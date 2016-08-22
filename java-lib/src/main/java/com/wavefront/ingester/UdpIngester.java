@@ -14,6 +14,8 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioDatagramChannel;
 
 /**
+ * Bootstrapping for datagram ingester channels on a socket.
+ *
  * @author Tim Schmidt (tim@wavefront.com).
  */
 public class UdpIngester extends Ingester {

@@ -10,6 +10,7 @@ import com.squareup.tape.FileObjectQueue;
 import com.squareup.tape.ObjectQueue;
 import com.tdunning.math.stats.AgentDigest;
 import com.wavefront.agent.formatter.GraphiteFormatter;
+import com.wavefront.agent.histogram.HistogramLineIngester;
 import com.wavefront.agent.histogram.accumulator.AccumulationCache;
 import com.wavefront.agent.histogram.accumulator.AccumulationTask;
 import com.wavefront.agent.histogram.Dispatcher;
@@ -49,6 +50,7 @@ import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Queue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executors;
@@ -343,9 +345,9 @@ public class PushAgent extends AbstractAgent {
     ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(4);
 
     int port = Integer.parseInt(portAsString);
-    File tapeFile = new File(directory, granularity.name() + "_" + portAsString);
+//    File tapeFile = new File(directory, granularity.name() + "_" + portAsString);
     File outTapeFile = new File(directory, "sendTape");
-    ObjectQueue<List<String>> receiveTape = receiveDeck.getTape(tapeFile);
+//    ObjectQueue<List<String>> receiveTape = receiveDeck.getTape(tapeFile);
     ObjectQueue<ReportPoint> sendTape = sendDeck.getTape(outTapeFile);
     PointHandler invalidPointHandler = new PointHandlerImpl(port, pushValidationLevel, pushBlockedSamples, prefix, getFlushTasks(port));
 
@@ -367,17 +369,6 @@ public class PushAgent extends AbstractAgent {
 
     scheduler.scheduleWithFixedDelay(cache.getResolveTask(), 10L, 10L, TimeUnit.MILLISECONDS);
 
-    // Set-up scanner
-    AccumulationTask scanTask = new AccumulationTask(
-        receiveTape,
-        cache.getCache().asMap(),
-        new GraphiteDecoder("unknown", customSourceTags),
-        invalidPointHandler,
-        Validation.Level.valueOf(pushValidationLevel),
-        30000L,
-        granularity);
-
-    scheduler.scheduleWithFixedDelay(scanTask, 100L, 1L, TimeUnit.MICROSECONDS);
 
     // Set-up dispatcher
     Dispatcher dispatchTask = new Dispatcher(map, sendTape);
@@ -386,13 +377,35 @@ public class PushAgent extends AbstractAgent {
     DroppingSender sendTask = new DroppingSender(sendTape);
     scheduler.scheduleWithFixedDelay(sendTask, 100L, 1L, TimeUnit.MICROSECONDS);
 
-    QueuingChannelHandler<String> handler = new QueuingChannelHandler<>(receiveTape, 100);
-    scheduler.scheduleWithFixedDelay(handler.getBufferFlushTask(), 85L, 1L, TimeUnit.MICROSECONDS);
+
+    List<ChannelHandler> handlers = new ArrayList<>();
+    for (int i=0; i<4; ++i) {
+      File tapeFile = new File(directory, granularity.name() + "_" + portAsString + "_" + i);
+      ObjectQueue<List<String>> receiveTape = receiveDeck.getTape(tapeFile);
+
+      // Set-up scanner
+      AccumulationTask scanTask = new AccumulationTask(
+          receiveTape,
+          cache.getCache().asMap(),
+          new GraphiteDecoder("unknown", customSourceTags),
+          invalidPointHandler,
+          Validation.Level.valueOf(pushValidationLevel),
+          30000L,
+          granularity);
+
+      scheduler.scheduleWithFixedDelay(scanTask, 100L, 1L, TimeUnit.MICROSECONDS);
+
+      QueuingChannelHandler<String> handler = new QueuingChannelHandler<>(receiveTape, 100);
+      handlers.add(handler);
+      scheduler.scheduleWithFixedDelay(handler.getBufferFlushTask(), 85L, 1L, TimeUnit.MICROSECONDS);
+    }
+//    QueuingChannelHandler<String> handler = new QueuingChannelHandler<>(receiveTape, 100);
+//    scheduler.scheduleWithFixedDelay(handler.getBufferFlushTask(), 85L, 1L, TimeUnit.MICROSECONDS);
 
     // Set-up producer
     new Thread(
-        new StringLineIngester(
-            handler,
+        new HistogramLineIngester(
+            handlers,
             port)).start();
 
 
