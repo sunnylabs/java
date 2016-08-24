@@ -26,11 +26,6 @@ import sunnylabs.report.ReportPoint;
  * Histogram accumulation task. Parses samples in Graphite/Wavefront notation from its input queue and accumulates them
  * in histograms.
  *
- * Con
- * add a builder (or make this injectable)
- * consider supporting transforms and linePredicates
- * support metric prefix
- *
  * @author Tim Schmidt (tim@wavefront.com).
  */
 public class AccumulationTask implements Runnable {
