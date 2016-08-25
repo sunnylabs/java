@@ -10,7 +10,7 @@ import java.util.logging.Logger;
 import sunnylabs.report.ReportPoint;
 
 /**
- * Test class only... consumes TDigests and sleeps for an amount of time to simulate sending
+ * Dummy sender. Consumes TDigests from an ObjectQueue and sleeps for an amount of time to simulate sending
  *
  * @author Tim Schmidt (tim@wavefront.com).
  */

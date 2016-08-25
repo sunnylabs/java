@@ -1,7 +1,9 @@
 package com.wavefront.agent.histogram;
 
+import sunnylabs.report.Histogram;
 import sunnylabs.report.ReportPoint;
 
+import static com.google.common.truth.Truth.assertThat;
 import static com.wavefront.agent.histogram.Utils.*;
 
 /**
@@ -21,5 +23,19 @@ public final class TestUtils {
     return Utils.makeKey(
         ReportPoint.newBuilder().setMetric(metric).setTimestamp(DEFAULT_TIME_MILLIS).setValue(DEFAULT_VALUE).build(),
         Granularity.MINUTE);
+  }
+
+
+  public static void testKeyPointMatch(HistogramKey key, ReportPoint point) {
+    assertThat(key).isNotNull();
+    assertThat(point).isNotNull();
+    assertThat(point.getValue()).isNotNull();
+    assertThat(point.getValue() instanceof Histogram).isTrue();
+
+    assertThat(key.getMetric()).isEqualTo(point.getMetric());
+    assertThat(key.getSource()).isEqualTo(point.getHost());
+    assertThat(key.getTagsAsMap()).isEqualTo(point.getAnnotations());
+    assertThat(key.getBinTimeMillis()).isEqualTo(point.getTimestamp());
+    assertThat(key.getBinDurationInMillis()).isEqualTo(((Histogram)point.getValue()).getDuration());
   }
 }

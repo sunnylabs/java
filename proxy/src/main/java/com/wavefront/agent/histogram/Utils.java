@@ -3,6 +3,8 @@ package com.wavefront.agent.histogram;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 
+import com.tdunning.math.stats.AgentDigest;
+
 import net.openhft.chronicle.bytes.Bytes;
 import net.openhft.chronicle.core.io.IORuntimeException;
 import net.openhft.chronicle.core.util.ReadResolvable;
@@ -98,6 +100,24 @@ public final class Utils {
         point.getHost(),
         annotations
     );
+  }
+
+  /**
+   * Creates a {@link ReportPoint} from a {@link HistogramKey} - {@link AgentDigest} pair
+   *
+   * @param histogramKey the key, defining metric, source, annotations, duration and start-time
+   * @param agentDigest the digest defining the centroids
+   * @return the corresponding point
+   */
+  static ReportPoint pointFromKeyAndDigest(HistogramKey histogramKey, AgentDigest agentDigest) {
+    return ReportPoint.newBuilder()
+        .setTimestamp(histogramKey.getBinTimeMillis())
+        .setMetric(histogramKey.getMetric())
+        .setHost(histogramKey.getSource())
+        .setAnnotations(histogramKey.getTagsAsMap())
+        .setTable("dummy")
+        .setValue(agentDigest.toHistogram((int) histogramKey.getBinDurationInMillis()))
+        .build();
   }
 
   /**

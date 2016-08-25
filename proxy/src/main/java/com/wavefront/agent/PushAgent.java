@@ -13,7 +13,7 @@ import com.wavefront.agent.formatter.GraphiteFormatter;
 import com.wavefront.agent.histogram.HistogramLineIngester;
 import com.wavefront.agent.histogram.accumulator.AccumulationCache;
 import com.wavefront.agent.histogram.accumulator.AccumulationTask;
-import com.wavefront.agent.histogram.Dispatcher;
+import com.wavefront.agent.histogram.TapeDispatcher;
 import com.wavefront.agent.histogram.DroppingSender;
 import com.wavefront.agent.histogram.MapLoader;
 import com.wavefront.agent.histogram.QueuingChannelHandler;
@@ -50,7 +50,6 @@ import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.List;
-import java.util.Queue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executors;
@@ -371,7 +370,7 @@ public class PushAgent extends AbstractAgent {
 
 
     // Set-up dispatcher
-    Dispatcher dispatchTask = new Dispatcher(map, sendTape);
+    TapeDispatcher dispatchTask = new TapeDispatcher(map, sendTape);
     scheduler.scheduleWithFixedDelay(dispatchTask, 100L, 1L, TimeUnit.MICROSECONDS);
 
     DroppingSender sendTask = new DroppingSender(sendTape);
