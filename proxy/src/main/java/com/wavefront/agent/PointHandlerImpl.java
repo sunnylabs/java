@@ -4,16 +4,14 @@ import com.google.common.annotations.VisibleForTesting;
 
 import com.wavefront.common.Clock;
 import com.yammer.metrics.Metrics;
-import com.yammer.metrics.core.Counter;
 import com.yammer.metrics.core.Histogram;
 import com.yammer.metrics.core.MetricName;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang.time.DateUtils;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -124,36 +122,6 @@ public class PointHandlerImpl implements PointHandler {
 
   private static final long MILLIS_IN_YEAR = DateUtils.MILLIS_PER_DAY * 365;
 
-  @VisibleForTesting
-  static boolean annotationKeysAreValid(ReportPoint point) {
-    for (String key : point.getAnnotations().keySet()) {
-      if (!charactersAreValid(key)) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  @VisibleForTesting
-  static boolean charactersAreValid(String input) {
-    // Legal characters are 44-57 (,-./ and numbers), 65-90 (upper), 97-122 (lower), 95 (_)
-    int l = input.length();
-    if (l == 0) {
-      return false;
-    }
-
-    for (int i = 0; i < l; i++) {
-      char cur = input.charAt(i);
-      if (!(44 <= cur && cur <= 57) && !(65 <= cur && cur <= 90) && !(97 <= cur && cur <= 122) &&
-          cur != 95) {
-        if (i != 0 || cur != 126) {
-          // first character can be 126 (~)
-          return false;
-        }
-      }
-    }
-    return true;
-  }
 
   @VisibleForTesting
   static boolean pointInRange(ReportPoint point) {
@@ -165,17 +133,63 @@ public class PointHandlerImpl implements PointHandler {
   }
 
   private static String pointToStringSB(ReportPoint point) {
-    StringBuilder sb = new StringBuilder("\"")
-        .append(point.getMetric().replaceAll("\"", "\\\"")).append("\" ")
-        .append(point.getValue()).append(" ")
-        .append(point.getTimestamp() / 1000).append(" ")
-        .append("source=\"").append(point.getHost().replaceAll("\"", "\\\"")).append("\"");
-    for (Map.Entry<String, String> entry : point.getAnnotations().entrySet()) {
-      sb.append(" \"").append(entry.getKey().replaceAll("\"", "\\\"")).append("\"")
-          .append("=")
-          .append("\"").append(entry.getValue().replaceAll("\"", "\\\"")).append("\"");
+    if (point.getValue() instanceof Double || point.getValue() instanceof Long || point.getValue() instanceof String) {
+      StringBuilder sb = new StringBuilder("\"")
+          .append(point.getMetric().replaceAll("\"", "\\\"")).append("\" ")
+          .append(point.getValue()).append(" ")
+          .append(point.getTimestamp() / 1000).append(" ")
+          .append("source=\"").append(point.getHost().replaceAll("\"", "\\\"")).append("\"");
+      for (Map.Entry<String, String> entry : point.getAnnotations().entrySet()) {
+        sb.append(" \"").append(entry.getKey().replaceAll("\"", "\\\"")).append("\"")
+            .append("=")
+            .append("\"").append(entry.getValue().replaceAll("\"", "\\\"")).append("\"");
+      }
+      return sb.toString();
+    } else if (point.getValue() instanceof sunnylabs.report.Histogram){
+      sunnylabs.report.Histogram h = (sunnylabs.report.Histogram) point.getValue();
+
+      StringBuilder sb = new StringBuilder();
+
+      // BinType
+      switch (h.getDuration()) {
+        case (int) DateUtils.MILLIS_PER_MINUTE:
+          sb.append("!M ");
+          break;
+        case (int) DateUtils.MILLIS_PER_HOUR:
+          sb.append("!H ");
+          break;
+        case (int) DateUtils.MILLIS_PER_DAY:
+          sb.append("!D ");
+        default:
+          throw new RuntimeException("Unexpected histogram duration " + h.getDuration());
+      }
+
+      // Timestamp
+      sb.append(point.getTimestamp() / 1000).append(' ');
+
+      // Centroids
+      int numCentroids = Math.min(CollectionUtils.size(h.getBins()), CollectionUtils.size(h.getCounts()));
+      for (int i=0; i<numCentroids; ++i) {
+        // Count
+        sb.append('#').append(h.getCounts().get(i)).append(' ');
+        // Mean
+        sb.append(h.getBins().get(i)).append(' ');
+      }
+
+      // Metric
+      sb.append('"').append(point.getMetric().replaceAll("\"", "\\\"")).append("\" ");
+
+      // Source
+      sb.append("source=\"").append(point.getHost().replaceAll("\"", "\\\"")).append("\"");
+      for (Map.Entry<String, String> entry : point.getAnnotations().entrySet()) {
+        sb.append(" \"").append(entry.getKey().replaceAll("\"", "\\\"")).append("\"")
+            .append("=")
+            .append("\"").append(entry.getValue().replaceAll("\"", "\\\"")).append("\"");
+      }
+
+      return sb.toString();
     }
-    return sb.toString();
+    throw new RuntimeException("Unsupported value class: " + point.getValue().getClass().getCanonicalName());
   }
 
 
