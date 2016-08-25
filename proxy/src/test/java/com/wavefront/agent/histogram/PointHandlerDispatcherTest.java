@@ -1,7 +1,5 @@
 package com.wavefront.agent.histogram;
 
-import com.squareup.tape.InMemoryObjectQueue;
-import com.squareup.tape.ObjectQueue;
 import com.tdunning.math.stats.AgentDigest;
 import com.wavefront.agent.PointHandler;
 
@@ -18,7 +16,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import sunnylabs.report.ReportPoint;
 
 import static com.google.common.truth.Truth.assertThat;
-import static org.junit.Assert.*;
 
 /**
  * @author Tim Schmidt (tim@wavefront.com).
@@ -28,7 +25,7 @@ public class PointHandlerDispatcherTest {
   private List<ReportPoint> pointOut;
   private List<String> debugLineOut;
   private List<String> blockedOut;
-  private AtomicLong timeNanos;
+  private AtomicLong timeMillis;
   private PointHandlerDispatcher subject;
 
   private Utils.HistogramKey keyA = TestUtils.makeKey("keyA");
@@ -45,8 +42,8 @@ public class PointHandlerDispatcherTest {
     blockedOut = new LinkedList<>();
     digestA = new AgentDigest(100L);
     digestB = new AgentDigest(1000L);
-    timeNanos = new AtomicLong(0L);
-    subject = new PointHandlerDispatcher(in, new PointHandler(){
+    timeMillis = new AtomicLong(0L);
+    subject = new PointHandlerDispatcher(in, new PointHandler() {
 
       @Override
       public void reportPoint(ReportPoint point, String debugLine) {
@@ -63,14 +60,14 @@ public class PointHandlerDispatcherTest {
       public void handleBlockedPoint(String pointLine) {
         blockedOut.add(pointLine);
       }
-    }, timeNanos::get);
+    }, timeMillis::get);
   }
 
   @Test
   public void testBasicDispatch() {
     in.put(keyA, digestA);
 
-    timeNanos.set(TimeUnit.MILLISECONDS.toNanos(101L));
+    timeMillis.set(101L);
     subject.run();
 
     assertThat(pointOut).hasSize(1);
@@ -88,7 +85,7 @@ public class PointHandlerDispatcherTest {
     in.put(keyA, digestA);
     in.put(keyB, digestB);
 
-    timeNanos.set(TimeUnit.MILLISECONDS.toNanos(101L));
+    timeMillis.set(101L);
     subject.run();
 
     assertThat(pointOut).hasSize(1);

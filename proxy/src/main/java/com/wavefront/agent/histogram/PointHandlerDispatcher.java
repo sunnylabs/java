@@ -2,12 +2,13 @@ package com.wavefront.agent.histogram;
 
 import com.google.common.annotations.VisibleForTesting;
 
-import com.github.benmanes.caffeine.cache.Ticker;
 import com.tdunning.math.stats.AgentDigest;
 import com.wavefront.agent.PointHandler;
+import com.yammer.metrics.Metrics;
+import com.yammer.metrics.core.Counter;
+import com.yammer.metrics.core.MetricName;
 
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -21,19 +22,24 @@ import sunnylabs.report.ReportPoint;
 public class PointHandlerDispatcher implements Runnable {
   private final static Logger logger = Logger.getLogger(PointHandlerDispatcher.class.getCanonicalName());
 
+  private final Counter dispatchCounter = Metrics.newCounter(new MetricName("histogram", "", "dispatched"));
+
   private final ConcurrentMap<Utils.HistogramKey, AgentDigest> digests;
   private final PointHandler output;
-  private final Ticker ticker;
+  private final TimeProvider clock;
 
   public PointHandlerDispatcher(ConcurrentMap<Utils.HistogramKey, AgentDigest> digests, PointHandler output) {
-    this(digests, output, Ticker.systemTicker());
+    this(digests, output, System::currentTimeMillis);
   }
 
   @VisibleForTesting
-  PointHandlerDispatcher(ConcurrentMap<Utils.HistogramKey, AgentDigest> digests, PointHandler output, Ticker ticker) {
+  PointHandlerDispatcher(
+      ConcurrentMap<Utils.HistogramKey, AgentDigest> digests,
+      PointHandler output,
+      TimeProvider clock) {
     this.digests = digests;
     this.output = output;
-    this.ticker = ticker;
+    this.clock = clock;
   }
 
   @Override
@@ -44,10 +50,11 @@ public class PointHandlerDispatcher implements Runnable {
           return null;
         }
         // Remove and add to shipping queue
-        if (v.getDispatchTimeMillis() < TimeUnit.NANOSECONDS.toMillis(ticker.read())) {
+        if (v.getDispatchTimeMillis() < clock.millisSinceEpoch()) {
           try {
             ReportPoint out = Utils.pointFromKeyAndDigest(k, v);
             output.reportPoint(out, k.toString());
+            dispatchCounter.inc();
           } catch (Exception e) {
             logger.log(Level.SEVERE, "Failed dispatching entry " + k, e);
           }

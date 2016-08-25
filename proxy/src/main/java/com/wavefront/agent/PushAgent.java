@@ -9,8 +9,10 @@ import com.beust.jcommander.internal.Lists;
 import com.squareup.tape.FileObjectQueue;
 import com.squareup.tape.ObjectQueue;
 import com.tdunning.math.stats.AgentDigest;
+import com.wavefront.PointHandlerLoggingDecorator;
 import com.wavefront.agent.formatter.GraphiteFormatter;
 import com.wavefront.agent.histogram.HistogramLineIngester;
+import com.wavefront.agent.histogram.PointHandlerDispatcher;
 import com.wavefront.agent.histogram.accumulator.AccumulationCache;
 import com.wavefront.agent.histogram.accumulator.AccumulationTask;
 import com.wavefront.agent.histogram.TapeDispatcher;
@@ -28,6 +30,7 @@ import com.wavefront.ingester.PickleProtocolDecoder;
 import com.wavefront.ingester.StreamIngester;
 import com.wavefront.ingester.StringLineIngester;
 import com.wavefront.ingester.TcpIngester;
+import com.yammer.metrics.reporting.ConsoleReporter;
 
 import org.apache.avro.io.BinaryEncoder;
 import org.apache.avro.io.DatumWriter;
@@ -343,18 +346,22 @@ public class PushAgent extends AbstractAgent {
     Preconditions.checkNotNull(sendDeck);
     ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(4);
 
+    // Print metrics to console for debug purposes
+    ConsoleReporter.enable(20L, TimeUnit.SECONDS);
+
     int port = Integer.parseInt(portAsString);
 //    File tapeFile = new File(directory, granularity.name() + "_" + portAsString);
     File outTapeFile = new File(directory, "sendTape");
 //    ObjectQueue<List<String>> receiveTape = receiveDeck.getTape(tapeFile);
     ObjectQueue<ReportPoint> sendTape = sendDeck.getTape(outTapeFile);
-    PointHandler invalidPointHandler = new PointHandlerImpl(port, pushValidationLevel, pushBlockedSamples, prefix, getFlushTasks(port));
+    PointHandlerLoggingDecorator pointHandler = new PointHandlerLoggingDecorator(new PointHandlerImpl(port, pushValidationLevel, pushBlockedSamples, prefix, getFlushTasks(port)));
 
+    scheduler.scheduleWithFixedDelay(pointHandler.getLoggingTask(), 10L, 10L, TimeUnit.SECONDS);
     // TODO inject
     MapLoader<Utils.HistogramKey, AgentDigest, Utils.HistogramKeyMarshaller, AgentDigest.AgentDigestMarshaller> loader = new MapLoader<>(
         Utils.HistogramKey.class,
         AgentDigest.class,
-        10000000L,
+        100000L,
         200D,
         1000D,
         Utils.HistogramKeyMarshaller.get(),
@@ -364,17 +371,21 @@ public class PushAgent extends AbstractAgent {
     ConcurrentMap<Utils.HistogramKey, AgentDigest> map = loader.get(mapFile);
 
     // Local Cache
-    AccumulationCache cache = new AccumulationCache(map, 1000L, null);
+    AccumulationCache cache = new AccumulationCache(map, 10000000L, null);
 
-    scheduler.scheduleWithFixedDelay(cache.getResolveTask(), 10L, 10L, TimeUnit.MILLISECONDS);
+    scheduler.scheduleWithFixedDelay(cache.getResolveTask(), 100L, 100L, TimeUnit.MILLISECONDS);
 
 
     // Set-up dispatcher
-    TapeDispatcher dispatchTask = new TapeDispatcher(map, sendTape);
+    PointHandlerDispatcher dispatchTask = new PointHandlerDispatcher(map, pointHandler);
     scheduler.scheduleWithFixedDelay(dispatchTask, 100L, 1L, TimeUnit.MICROSECONDS);
 
-    DroppingSender sendTask = new DroppingSender(sendTape);
-    scheduler.scheduleWithFixedDelay(sendTask, 100L, 1L, TimeUnit.MICROSECONDS);
+    // Set-up dispatcher
+//    TapeDispatcher dispatchTask = new TapeDispatcher(map, sendTape);
+//    scheduler.scheduleWithFixedDelay(dispatchTask, 100L, 1L, TimeUnit.MICROSECONDS);
+//
+//    DroppingSender sendTask = new DroppingSender(sendTape);
+//    scheduler.scheduleWithFixedDelay(sendTask, 100L, 1L, TimeUnit.MICROSECONDS);
 
 
     List<ChannelHandler> handlers = new ArrayList<>();
@@ -387,7 +398,7 @@ public class PushAgent extends AbstractAgent {
           receiveTape,
           cache.getCache().asMap(),
           new GraphiteDecoder("unknown", customSourceTags),
-          invalidPointHandler,
+          pointHandler,
           Validation.Level.valueOf(pushValidationLevel),
           30000L,
           granularity);

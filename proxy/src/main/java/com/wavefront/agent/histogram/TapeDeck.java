@@ -51,6 +51,7 @@ public class TapeDeck<T> {
           FileChannel channel = new RandomAccessFile(file, "rw").getChannel();
           Preconditions.checkNotNull(channel.tryLock());
         } catch (Exception e) {
+          // TODO on an IOException, (potentially also look for File is corrupt in the msg), move/delete file and retry
           throw e;
         }
 
@@ -65,6 +66,7 @@ public class TapeDeck<T> {
       return queues.get(f);
     } catch (Exception e) {
       logger.log(Level.SEVERE, "Error while loading " + f, e);
+
       return null;
     }
   }

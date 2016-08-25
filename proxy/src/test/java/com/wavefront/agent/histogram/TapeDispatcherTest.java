@@ -22,7 +22,7 @@ import static com.google.common.truth.Truth.assertThat;
 public class TapeDispatcherTest {
   private ConcurrentMap<Utils.HistogramKey, AgentDigest> in;
   private ObjectQueue<ReportPoint> out;
-  private AtomicLong timeNanos;
+  private AtomicLong timeMillis;
   private TapeDispatcher subject;
 
   private Utils.HistogramKey keyA = TestUtils.makeKey("keyA");
@@ -37,15 +37,15 @@ public class TapeDispatcherTest {
     out = new InMemoryObjectQueue<>();
     digestA = new AgentDigest(100L);
     digestB = new AgentDigest(1000L);
-    timeNanos = new AtomicLong(0L);
-    subject = new TapeDispatcher(in, out, timeNanos::get);
+    timeMillis = new AtomicLong(0L);
+    subject = new TapeDispatcher(in, out, timeMillis::get);
   }
 
   @Test
   public void testBasicDispatch() {
     in.put(keyA, digestA);
 
-    timeNanos.set(TimeUnit.MILLISECONDS.toNanos(101L));
+    timeMillis.set(TimeUnit.MILLISECONDS.toNanos(101L));
     subject.run();
 
     assertThat(out.size()).isEqualTo(1);
@@ -61,7 +61,7 @@ public class TapeDispatcherTest {
     in.put(keyA, digestA);
     in.put(keyB, digestB);
 
-    timeNanos.set(TimeUnit.MILLISECONDS.toNanos(101L));
+    timeMillis.set(101L);
     subject.run();
 
     assertThat(out.size()).isEqualTo(1);
