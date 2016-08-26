@@ -329,16 +329,17 @@ public class IngesterFormatter {
   public static class GuardedLoop implements FormatterElement {
     private final FormatterElement element;
     private final int acceptedToken;
-    private boolean satisfied;
+    private final boolean optional;
 
     public GuardedLoop(FormatterElement element, int acceptedToken, boolean optional) {
       this.element = element;
       this.acceptedToken = acceptedToken;
-      this.satisfied = optional;
+      this.optional = optional;
     }
 
     @Override
     public void consume(Queue<Token> tokenQueue, ReportPoint point) {
+      boolean satisfied = optional;
       while (!tokenQueue.isEmpty()) {
         WHITESPACE_ELEMENT.consume(tokenQueue, point);
         if (tokenQueue.peek() == null || tokenQueue.peek().getType() != acceptedToken) {

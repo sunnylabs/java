@@ -38,6 +38,8 @@ public class PostPushDataTimedTask implements Runnable {
   private List<String> points = new ArrayList<>();
   private final Object pointsMutex = new Object();
   private final List<String> blockedSamples = new ArrayList<>();
+
+  private final String pushFormat;
   private final Object blockedSamplesMutex = new Object();
 
   private RateLimiter warningMessageRateLimiter = RateLimiter.create(0.2);
@@ -120,8 +122,9 @@ public class PostPushDataTimedTask implements Runnable {
     return daemonId;
   }
 
-  public PostPushDataTimedTask(ForceQueueEnabledAgentAPI agentAPI, String logLevel,
+  public PostPushDataTimedTask(String pushFormat, ForceQueueEnabledAgentAPI agentAPI, String logLevel,
                                UUID daemonId, int port, int threadId) {
+    this.pushFormat = pushFormat;
     this.logLevel = logLevel;
     this.daemonId = daemonId;
     this.port = port;

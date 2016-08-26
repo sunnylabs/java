@@ -1,4 +1,4 @@
-package com.wavefront.agent.histogram;
+package com.wavefront.agent.histogram.tape;
 
 import com.google.common.base.Preconditions;
 import com.google.common.cache.CacheBuilder;

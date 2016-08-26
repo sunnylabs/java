@@ -1,5 +1,4 @@
-package com.wavefront.agent.histogram;
-
+package com.wavefront.ingester;
 
 import org.apache.commons.lang.time.DateUtils;
 import org.junit.Test;

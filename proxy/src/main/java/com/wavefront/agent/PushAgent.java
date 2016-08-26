@@ -15,13 +15,14 @@ import com.wavefront.agent.histogram.HistogramLineIngester;
 import com.wavefront.agent.histogram.PointHandlerDispatcher;
 import com.wavefront.agent.histogram.accumulator.AccumulationCache;
 import com.wavefront.agent.histogram.accumulator.AccumulationTask;
-import com.wavefront.agent.histogram.TapeDispatcher;
-import com.wavefront.agent.histogram.DroppingSender;
 import com.wavefront.agent.histogram.MapLoader;
 import com.wavefront.agent.histogram.QueuingChannelHandler;
-import com.wavefront.agent.histogram.TapeDeck;
+import com.wavefront.agent.histogram.tape.TapeDeck;
 import com.wavefront.agent.histogram.Utils;
+import com.wavefront.agent.histogram.tape.TapeReportPointConverter;
+import com.wavefront.agent.histogram.tape.TapeStringListConverter;
 import com.wavefront.api.agent.AgentConfiguration;
+import com.wavefront.api.agent.Constants;
 import com.wavefront.ingester.Decoder;
 import com.wavefront.ingester.GraphiteDecoder;
 import com.wavefront.ingester.GraphiteHostAnnotator;
@@ -42,13 +43,11 @@ import org.glassfish.jersey.jackson.JacksonFeature;
 import org.glassfish.jersey.jetty.JettyHttpContainerFactory;
 import org.glassfish.jersey.server.ResourceConfig;
 
-import java.io.DataOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
@@ -108,55 +107,12 @@ public class PushAgent extends AbstractAgent {
 
     // TODO change this
     startHistogramListener(
-        "2880",
+        "28800",
         new File("/Users/timschmidt/agent/"),
         Utils.Granularity.MINUTE,
-        new TapeDeck<>(new FileObjectQueue.Converter<List<String>>() {
-          @Override
-          public List<String> from(byte[] bytes) throws IOException {
-            ByteBuffer in = ByteBuffer.wrap(bytes);
-            int count = in.getShort();
-            List<String> result = new ArrayList<>(count);
-            for (int i = 0; i < count; ++i) {
-              int len = in.getShort();
-              result.add(new String(bytes, in.position(), len));
-              in.position(in.position() + len);
-            }
-            return result;
-          }
-
-          @Override
-          public void toStream(List<String> strings, OutputStream out) throws IOException {
-            DataOutputStream dOut = new DataOutputStream(out);
-            dOut.writeShort(strings.size());
-            for (String s : strings) {
-              byte[] b = s.getBytes();
-              dOut.writeShort(b.length);
-              dOut.write(b);
-            }
-            // flush?
-          }
-        }),
-        new TapeDeck<>(new FileObjectQueue.Converter<ReportPoint>() {
-
-          @Override
-          public ReportPoint from(byte[] bytes) throws IOException {
-            SpecificDatumReader<ReportPoint> reader = new SpecificDatumReader<>(ReportPoint.SCHEMA$);
-            org.apache.avro.io.Decoder decoder = DecoderFactory.get().binaryDecoder(bytes, null);
-
-            return reader.read(null, decoder);
-          }
-
-          @Override
-          public void toStream(ReportPoint tDigest, OutputStream outputStream) throws IOException {
-            BinaryEncoder encoder = EncoderFactory.get().binaryEncoder(outputStream, null);
-            DatumWriter<ReportPoint> writer = new SpecificDatumWriter<>(ReportPoint.SCHEMA$);
-
-            writer.write(tDigest, encoder);
-            encoder.flush();
-          }
-        })
-
+        new TapeDeck<>(TapeStringListConverter.get()),
+        new TapeDeck<>(TapeReportPointConverter.get()),
+        TimeUnit.SECONDS.toMillis(30)
     );
 
 //    if (histogramMinsListenerPorts != null) {
@@ -336,7 +292,8 @@ public class PushAgent extends AbstractAgent {
       File directory,
       Utils.Granularity granularity,
       TapeDeck<List<String>> receiveDeck,
-      TapeDeck<ReportPoint> sendDeck) {
+      TapeDeck<ReportPoint> sendDeck,
+      long timeToLiveMillis) {
     Preconditions.checkNotNull(portAsString);
     Preconditions.checkNotNull(directory);
     Preconditions.checkArgument(directory.isDirectory(), directory.getAbsolutePath() + " must be a directory!");
@@ -354,29 +311,38 @@ public class PushAgent extends AbstractAgent {
     File outTapeFile = new File(directory, "sendTape");
 //    ObjectQueue<List<String>> receiveTape = receiveDeck.getTape(tapeFile);
     ObjectQueue<ReportPoint> sendTape = sendDeck.getTape(outTapeFile);
-    PointHandlerLoggingDecorator pointHandler = new PointHandlerLoggingDecorator(new PointHandlerImpl(port, pushValidationLevel, pushBlockedSamples, prefix, getFlushTasks(port)));
+
+    // TODO remove the decorator.
+    PointHandlerLoggingDecorator pointHandler = new PointHandlerLoggingDecorator(
+        new PointHandlerImpl(
+            port,
+            pushValidationLevel,
+            pushBlockedSamples,
+            prefix,
+            getFlushTasks(Constants.PUSH_FORMAT_HISTOGRAM, port)));
 
     scheduler.scheduleWithFixedDelay(pointHandler.getLoggingTask(), 10L, 10L, TimeUnit.SECONDS);
-    // TODO inject
-    MapLoader<Utils.HistogramKey, AgentDigest, Utils.HistogramKeyMarshaller, AgentDigest.AgentDigestMarshaller> loader = new MapLoader<>(
-        Utils.HistogramKey.class,
-        AgentDigest.class,
-        100000L,
-        200D,
-        1000D,
-        Utils.HistogramKeyMarshaller.get(),
-        AgentDigest.AgentDigestMarshaller.get());
+
+    // TODO This needs to be passed in and reused across handlers
+    MapLoader<Utils.HistogramKey, AgentDigest, Utils.HistogramKeyMarshaller, AgentDigest.AgentDigestMarshaller> loader =
+        new MapLoader<>(
+            Utils.HistogramKey.class,
+            AgentDigest.class,
+            100000L,
+            200D,
+            1000D,
+            Utils.HistogramKeyMarshaller.get(),
+            AgentDigest.AgentDigestMarshaller.get());
 
     File mapFile = new File(directory, "mapfile");
     ConcurrentMap<Utils.HistogramKey, AgentDigest> map = loader.get(mapFile);
 
-    // Local Cache
+    // TODO Should be done outside of this too and shared across handlers Local Cache
     AccumulationCache cache = new AccumulationCache(map, 10000000L, null);
 
     scheduler.scheduleWithFixedDelay(cache.getResolveTask(), 100L, 100L, TimeUnit.MILLISECONDS);
 
-
-    // Set-up dispatcher
+    // TODO, Set-up dispatcher should happen outside of this (it is global across ports)
     PointHandlerDispatcher dispatchTask = new PointHandlerDispatcher(map, pointHandler);
     scheduler.scheduleWithFixedDelay(dispatchTask, 100L, 1L, TimeUnit.MICROSECONDS);
 
@@ -400,7 +366,7 @@ public class PushAgent extends AbstractAgent {
           new GraphiteDecoder("unknown", customSourceTags),
           pointHandler,
           Validation.Level.valueOf(pushValidationLevel),
-          30000L,
+          timeToLiveMillis,
           granularity);
 
       scheduler.scheduleWithFixedDelay(scanTask, 100L, 1L, TimeUnit.MICROSECONDS);

@@ -1,13 +1,10 @@
-package com.wavefront.agent.histogram;
+package com.wavefront.ingester;
 
-import com.wavefront.ingester.Decoder;
-import com.wavefront.ingester.IngesterFormatter;
-
+import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import jersey.repackaged.com.google.common.collect.ImmutableList;
 import sunnylabs.report.ReportPoint;
 
 /**
@@ -35,7 +32,7 @@ public class HistogramDecoder implements Decoder<String> {
 
   @Override
   public void decodeReportPoints(String msg, List<ReportPoint> out, String customerId) {
-    ReportPoint point = FORMAT.drive(msg, null, customerId, ImmutableList.of());
+    ReportPoint point = FORMAT.drive(msg, null, customerId, new ArrayList<>());
     if (point != null) {
       out.add(point);
     }

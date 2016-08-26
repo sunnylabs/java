@@ -13,6 +13,7 @@ import com.beust.jcommander.Parameter;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.wavefront.api.AgentAPI;
 import com.wavefront.api.agent.AgentConfiguration;
+import com.wavefront.api.agent.Constants;
 import com.wavefront.common.Clock;
 import com.wavefront.metrics.ExpectedAgentMetric;
 import com.wavefront.metrics.JsonMetricsGenerator;
@@ -110,7 +111,7 @@ public abstract class AbstractAgent {
   protected String pushValidationLevel = "NUMERIC_ONLY";
 
   @Parameter(names = {"-h", "--host"}, description = "Server URL")
-  protected String server = "http://localhost:8082/api/";
+  protected String server = "http://localhost:8080/api/";
 
   @Parameter(names = {"--buffer"}, description = "File to use for buffering failed transmissions to Wavefront servers" +
       ". Defaults to buffer.")
@@ -668,14 +669,18 @@ public abstract class AbstractAgent {
   }
 
   protected PostPushDataTimedTask[] getFlushTasks(int port) {
+    return getFlushTasks(Constants.PUSH_FORMAT_GRAPHITE_V2, port);
+  }
+
+  protected PostPushDataTimedTask[] getFlushTasks(String pushFormat, int port) {
     PostPushDataTimedTask[] toReturn = new PostPushDataTimedTask[flushThreads];
-    logger.info("Using " + flushThreads + " flush threads to send batched data to Wavefront for data received on " +
-        "port: " + port);
+    logger.info("Using " + flushThreads + " flush threads to send batched " + pushFormat  +
+        " data to Wavefront for data received on port: " + port);
     ScheduledExecutorService es = Executors.newScheduledThreadPool(flushThreads);
     managedExecutors.add(es);
     for (int i = 0; i < flushThreads; i++) {
       final PostPushDataTimedTask postPushDataTimedTask =
-          new PostPushDataTimedTask(agentAPI, pushLogLevel, agentId, port, i);
+          new PostPushDataTimedTask(pushFormat, agentAPI, pushLogLevel, agentId, port, i);
       es.scheduleWithFixedDelay(postPushDataTimedTask, pushFlushInterval, pushFlushInterval,
           TimeUnit.MILLISECONDS);
       toReturn[i] = postPushDataTimedTask;
