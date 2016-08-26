@@ -124,7 +124,6 @@
     <dependency>
       <groupId>io.netty</groupId>
       <artifactId>netty-codec-http</artifactId>
-      <version>4.0.35.Final</version>
     </dependency>
     <dependency>
       <groupId>commons-daemon</groupId>
