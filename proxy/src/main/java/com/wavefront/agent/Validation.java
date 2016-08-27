@@ -11,6 +11,7 @@ import java.util.Map;
 
 import javax.annotation.Nullable;
 
+import sunnylabs.report.Histogram;
 import sunnylabs.report.ReportPoint;
 
 import static com.wavefront.agent.Validation.Level.NO_VALIDATION;
@@ -128,8 +129,8 @@ public class Validation {
       // Is it the right type of point?
       switch (validationLevel) {
         case NUMERIC_ONLY:
-          if (!(pointValue instanceof Long) && !(pointValue instanceof Double)) {
-            String errorMessage = "WF-403 " + source + ": Was not long/double object (" + debugLine + ")";
+          if (!(pointValue instanceof Long) && !(pointValue instanceof Double) && !(pointValue instanceof Histogram)) {
+            String errorMessage = "WF-403 " + source + ": Was not long/double/histogram object (" + debugLine + ")";
             throw new IllegalArgumentException(errorMessage);
           }
           break;

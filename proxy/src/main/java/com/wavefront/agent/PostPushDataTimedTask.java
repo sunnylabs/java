@@ -152,8 +152,11 @@ public class PostPushDataTimedTask implements Runnable {
         TimerContext timerContext = this.batchSendTime.time();
         Response response = null;
         try {
-          response = agentAPI.postPushData(daemonId, Constants.GRAPHITE_BLOCK_WORK_UNIT,
-              System.currentTimeMillis(), Constants.PUSH_FORMAT_GRAPHITE_V2,
+          response = agentAPI.postPushData(
+              daemonId,
+              Constants.GRAPHITE_BLOCK_WORK_UNIT,
+              System.currentTimeMillis(),
+              pushFormat,
               StringLineIngester.joinPushData(current));
           int pointsInList = current.size();
           this.pointsAttempted.inc(pointsInList);
