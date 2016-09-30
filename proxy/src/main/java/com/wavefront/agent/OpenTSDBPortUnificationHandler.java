@@ -65,7 +65,7 @@ class OpenTSDBPortUnificationHandler extends SimpleChannelInboundHandler<Object>
   private final Predicate<String> whiteBlackList;
 
   OpenTSDBPortUnificationHandler(final OpenTSDBDecoder decoder,
-                                 final int port,
+                                 final String port,
                                  final String prefix,
                                  final String validationLevel,
                                  final int blockedPointsPerBatch,

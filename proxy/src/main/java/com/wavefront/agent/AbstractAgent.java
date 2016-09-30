@@ -74,10 +74,6 @@ public abstract class AbstractAgent {
   private static final Gson GSON = new Gson();
   private static final int GRAPHITE_LISTENING_PORT = 2878;
 
-  private static final int HISTOGRAM_MINS_LISTENING_PORT = 2880;
-  private static final int HISTOGRAM_HOURS_LISTENING_PORT = 2881;
-  private static final int HISTOGRAM_DAYS_LISTENING_PORT = 2882;
-
   private static final int OPENTSDB_LISTENING_PORT = 4242;
 
   protected static final SSLSocketFactoryImpl SSL_SOCKET_FACTORY = new SSLSocketFactoryImpl(
@@ -146,17 +142,78 @@ public abstract class AbstractAgent {
       "2878.")
   protected String pushListenerPorts = "" + GRAPHITE_LISTENING_PORT;
 
-  @Parameter(names = {"--histogramMinutesListenerPorts"}, description = "Comma-separated list of ports to listen on. Defaults to " +
-          "2880.")
+  @Parameter(
+      names = {"--histogramStateDirectory"},
+      description = "Directory for persistent agent state, must be writable.")
+  protected String histogramStateDirectory = "";
+
+  @Parameter(
+      names = {"--histogramAccumulatorResolveInterval"},
+      description = "Directory for persistent agent state, must be writable.")
+  protected long histogramAccumulatorResolveInterval = 100;
+
+  @Parameter(
+      names = {"--histogramMinutesListenerPorts"},
+      description = "Comma-separated list of ports to listen on. Defaults to none.")
   protected String histogramMinsListenerPorts = "";
 
-  @Parameter(names = {"--histogramHoursListenerPorts"}, description = "Comma-separated list of ports to listen on. Defaults to " +
-      "2881.")
+  @Parameter(
+      names = {"--histogramMinuteAccumulators"},
+      description = "Number of accumulators per minute port")
+  protected int histogramMinuteAccumulators = Runtime.getRuntime().availableProcessors();
+
+  @Parameter(
+      names = {"--histogramMinuteAccumulationInterval"},
+      description = "Number of seconds to keep a minute granularity accumulator open for new samples.")
+  protected int histogramMinuteAccumulationInterval = 30;
+
+  @Parameter(
+      names = {"--histogramHoursListenerPorts"},
+      description = "Comma-separated list of ports to listen on. Defaults to none.")
   protected String histogramHoursListenerPorts = "";
 
-  @Parameter(names = {"--histogramDaysListenerPorts"}, description = "Comma-separated list of ports to listen on. Defaults to " +
-      "2882.")
+  @Parameter(
+      names = {"--histogramHourAccumulators"},
+      description = "Number of accumulators per hour port")
+  protected int histogramHourAccumulators = Runtime.getRuntime().availableProcessors();
+
+  @Parameter(
+      names = {"--histogramHourAccumulationInterval"},
+      description = "Number of seconds to keep an hour granularity accumulator open for new samples.")
+  protected int histogramHourAccumulationInterval = 600;
+
+  @Parameter(
+      names = {"--histogramDaysListenerPorts"},
+      description = "Comma-separated list of ports to listen on. Defaults to none.")
   protected String histogramDaysListenerPorts = "";
+
+  @Parameter(
+      names = {"--histogramDayAccumulators"},
+      description = "Number of accumulators per day port")
+  protected int histogramDayAccumulators = Runtime.getRuntime().availableProcessors();
+
+  @Parameter(
+      names = {"--histogramDayAccumulationInterval"},
+      description = "Number of seconds to keep a day granularity accumulator open for new samples.")
+  protected int histogramDayAccumulationInterval = 3600;
+
+  @Parameter(
+      names = {"--histogramAccumulatorSize"},
+      description = "Average number of bytes in a [UTF-8] encoded histogram key. Generally corresponds to a metric, " +
+          "source and tags concatenation.")
+  protected long histogramAccumulatorSize = 100000L;
+
+  @Parameter(
+      names = {"--avgHistogramKeyBytes"},
+      description = "Average number of bytes in a [UTF-8] encoded histogram key. Generally corresponds to a metric, " +
+          "source and tags concatenation.")
+  protected int avgHistogramKeyBytes = 200;
+
+  // TODO Make this a function of Histogram ACCURACY?
+  @Parameter(
+      names = {"--avgHistogramDigestBytes"},
+      description = "Average number of bytes in a encoded histogram.")
+  protected int avgHistogramDigestBytes = 1000;
 
   @Parameter(names = {"--graphitePorts"}, description = "Comma-separated list of ports to listen on for graphite " +
       "data. Defaults to empty list.")
@@ -170,7 +227,7 @@ public abstract class AbstractAgent {
       "extracted hostname with dots. Defaults to underscores (_).")
   protected String graphiteDelimiters = "_";
 
-  @Parameter(names = {"--graphiteFieldsToRemove"}, description="Comma-separated list of metric segments to remove (1-based)")
+  @Parameter(names = {"--graphiteFieldsToRemove"}, description = "Comma-separated list of metric segments to remove (1-based)")
   protected String graphiteFieldsToRemove;
 
   @Parameter(names = {"--httpJsonPorts"}, description = "Comma-separated list of ports to listen on for json metrics " +
@@ -255,6 +312,9 @@ public abstract class AbstractAgent {
   protected List<String> customSourceTags = new ArrayList<>();
   protected final List<PostPushDataTimedTask> managedTasks = new ArrayList<>();
   protected final List<ScheduledExecutorService> managedExecutors = new ArrayList<>();
+
+  protected final ScheduledExecutorService histogramExecutor =
+      Executors.newScheduledThreadPool(Runtime.getRuntime().availableProcessors());
 
   protected final boolean localAgent;
   protected final boolean pushAgent;
@@ -668,19 +728,19 @@ public abstract class AbstractAgent {
     return newConfig;
   }
 
-  protected PostPushDataTimedTask[] getFlushTasks(int port) {
-    return getFlushTasks(Constants.PUSH_FORMAT_GRAPHITE_V2, port);
+  protected PostPushDataTimedTask[] getFlushTasks(String handle) {
+    return getFlushTasks(Constants.PUSH_FORMAT_GRAPHITE_V2, handle);
   }
 
-  protected PostPushDataTimedTask[] getFlushTasks(String pushFormat, int port) {
+  protected PostPushDataTimedTask[] getFlushTasks(String pushFormat, String handle) {
     PostPushDataTimedTask[] toReturn = new PostPushDataTimedTask[flushThreads];
-    logger.info("Using " + flushThreads + " flush threads to send batched " + pushFormat  +
-        " data to Wavefront for data received on port: " + port);
+    logger.info("Using " + flushThreads + " flush threads to send batched " + pushFormat +
+        " data to Wavefront for data received on port: " + handle);
     ScheduledExecutorService es = Executors.newScheduledThreadPool(flushThreads);
     managedExecutors.add(es);
     for (int i = 0; i < flushThreads; i++) {
       final PostPushDataTimedTask postPushDataTimedTask =
-          new PostPushDataTimedTask(pushFormat, agentAPI, pushLogLevel, agentId, port, i);
+          new PostPushDataTimedTask(pushFormat, agentAPI, pushLogLevel, agentId, handle, i);
       es.scheduleWithFixedDelay(postPushDataTimedTask, pushFlushInterval, pushFlushInterval,
           TimeUnit.MILLISECONDS);
       toReturn[i] = postPushDataTimedTask;

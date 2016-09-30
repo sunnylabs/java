@@ -2,9 +2,10 @@ package com.wavefront.agent.histogram;
 
 import com.google.common.base.Charsets;
 
+import java.util.ArrayList;
 import java.util.Collection;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -26,7 +27,7 @@ import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.handler.timeout.IdleStateHandler;
 
 /**
- * Combination of StringLine and TCP ingester
+ * A {@link ChannelInitializer} for Histogram samples via TCP.
  *
  * @author Tim Schmidt (tim@wavefront.com).
  */
@@ -38,15 +39,17 @@ public class HistogramLineIngester extends ChannelInitializer implements Runnabl
   private static final int MAXIMUM_FRAME_LENGTH = 4096;
   private static final int MAXIMUM_OUTSTANDING_CONNECTIONS = 1024;
 
+  private static final AtomicLong connectionId = new AtomicLong(0);
+
   private static final Logger logger = Logger.getLogger(HistogramLineIngester.class.getCanonicalName());
 
   // The final handlers to be installed.
-  private final ConcurrentLinkedQueue<ChannelHandler> handlers;
+  private final ArrayList<ChannelHandler> handlers;
   private final int port;
 
 
   public HistogramLineIngester(Collection<ChannelHandler> handlers, int port) {
-    this.handlers = new ConcurrentLinkedQueue<>(handlers);
+    this.handlers = new ArrayList<>(handlers);
     this.port = port;
   }
 
@@ -76,8 +79,9 @@ public class HistogramLineIngester extends ChannelInitializer implements Runnabl
 
   @Override
   protected void initChannel(Channel ch) throws Exception {
-    // Get handler
-    ChannelHandler handler = handlers.poll();
+    // Round robin channel to handler assignment.
+    int idx = (int) (Math.abs(connectionId.getAndIncrement()) % handlers.size());
+    ChannelHandler handler = handlers.get(idx);
 
     // Add decoders and timeout, add handler()
     ChannelPipeline pipeline = ch.pipeline();
@@ -91,7 +95,8 @@ public class HistogramLineIngester extends ChannelInitializer implements Runnabl
                                          Object evt) throws Exception {
             if (evt instanceof IdleStateEvent) {
               if (((IdleStateEvent) evt).state() == IdleState.READER_IDLE) {
-                logger.warning("terminating connection to graphite client due to inactivity after " + CHANNEL_IDLE_TIMEOUT_IN_SECS_DEFAULT + "s: " + ctx.channel());
+                logger.warning("terminating connection to histogram client due to inactivity after " +
+                    CHANNEL_IDLE_TIMEOUT_IN_SECS_DEFAULT + "s: " + ctx.channel());
                 ctx.close();
               }
             }

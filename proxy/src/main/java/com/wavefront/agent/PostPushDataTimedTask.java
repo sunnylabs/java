@@ -55,8 +55,7 @@ public class PostPushDataTimedTask implements Runnable {
   private long numApiCalls = 0;
 
   private UUID daemonId;
-  private int port;
-  private int threadId;
+  private String handle;
   private static int pointsPerBatch = MAX_SPLIT_BATCH_SIZE;
   private String logLevel;
   private boolean isFlushingToQueue = false;
@@ -123,22 +122,20 @@ public class PostPushDataTimedTask implements Runnable {
   }
 
   public PostPushDataTimedTask(String pushFormat, ForceQueueEnabledAgentAPI agentAPI, String logLevel,
-                               UUID daemonId, int port, int threadId) {
+                               UUID daemonId, String handle, int threadId) {
     this.pushFormat = pushFormat;
     this.logLevel = logLevel;
     this.daemonId = daemonId;
-    this.port = port;
-    this.threadId = threadId;
-
+    this.handle = handle;
     this.agentAPI = agentAPI;
 
-    this.pointsAttempted = Metrics.newCounter(new MetricName("points." + String.valueOf(port), "", "sent"));
-    this.pointsQueued = Metrics.newCounter(new MetricName("points." + String.valueOf(port), "", "queued"));
-    this.pointsBlocked = Metrics.newCounter(new MetricName("points." + String.valueOf(port), "", "blocked"));
-    this.pointsReceived = Metrics.newCounter(new MetricName("points." + String.valueOf(port), "", "received"));
+    this.pointsAttempted = Metrics.newCounter(new MetricName("points." + handle, "", "sent"));
+    this.pointsQueued = Metrics.newCounter(new MetricName("points." + handle, "", "queued"));
+    this.pointsBlocked = Metrics.newCounter(new MetricName("points." + handle, "", "blocked"));
+    this.pointsReceived = Metrics.newCounter(new MetricName("points." + handle, "", "received"));
     this.batchesSent = Metrics.newCounter(
-        new MetricName("push." + String.valueOf(port) + ".thread-" + String.valueOf(threadId), "", "batches"));
-    this.batchSendTime = Metrics.newTimer(new MetricName("push." + String.valueOf(port), "", "duration"),
+        new MetricName("push." + String.valueOf(handle) + ".thread-" + String.valueOf(threadId), "", "batches"));
+    this.batchSendTime = Metrics.newTimer(new MetricName("push." + handle, "", "duration"),
         TimeUnit.MILLISECONDS, TimeUnit.MINUTES);
   }
 
@@ -233,16 +230,16 @@ public class PostPushDataTimedTask implements Runnable {
     }
 
     if (logLevel.equals(LOG_DETAILED)) {
-      logger.warning("[" + port + "] (DETAILED): sending " + current.size() + " valid points; " +
+      logger.warning("[" + handle + "] (DETAILED): sending " + current.size() + " valid points; " +
           "queue size:" + points.size() + "; total attempted points: " +
           getAttemptedPoints() + "; total blocked: " + this.pointsBlocked.count());
     }
     if (((numIntervals % INTERVALS_PER_SUMMARY) == 0) && (!logLevel.equals(LOG_NONE))) {
-      logger.warning("[" + port + "] (SUMMARY): points attempted: " + getAttemptedPoints() +
+      logger.warning("[" + handle + "] (SUMMARY): points attempted: " + getAttemptedPoints() +
           "; blocked: " + this.pointsBlocked.count());
       if (currentBlockedSamples != null) {
         for (String blockedLine : currentBlockedSamples) {
-          logger.warning("[" + port + "] blocked input: [" + blockedLine + "]");
+          logger.warning("[" + handle + "] blocked input: [" + blockedLine + "]");
         }
       }
     }

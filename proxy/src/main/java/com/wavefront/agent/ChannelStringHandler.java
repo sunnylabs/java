@@ -40,7 +40,7 @@ public class ChannelStringHandler extends SimpleChannelInboundHandler<String> {
   private final Predicate<String> linePredicate;
 
   public ChannelStringHandler(Decoder<String> decoder,
-                              final int port,
+                              final String port,
                               final String prefix,
                               final String validationLevel,
                               final int blockedPointsPerBatch,

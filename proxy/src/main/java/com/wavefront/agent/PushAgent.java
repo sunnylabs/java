@@ -4,22 +4,23 @@ import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.base.Splitter;
+import com.google.common.base.Strings;
 
 import com.beust.jcommander.internal.Lists;
-import com.squareup.tape.FileObjectQueue;
 import com.squareup.tape.ObjectQueue;
 import com.tdunning.math.stats.AgentDigest;
-import com.wavefront.PointHandlerLoggingDecorator;
+import com.tdunning.math.stats.AgentDigest.AgentDigestMarshaller;
 import com.wavefront.agent.formatter.GraphiteFormatter;
 import com.wavefront.agent.histogram.HistogramLineIngester;
 import com.wavefront.agent.histogram.PointHandlerDispatcher;
+import com.wavefront.agent.histogram.Utils.HistogramKey;
+import com.wavefront.agent.histogram.Utils.HistogramKeyMarshaller;
 import com.wavefront.agent.histogram.accumulator.AccumulationCache;
 import com.wavefront.agent.histogram.accumulator.AccumulationTask;
 import com.wavefront.agent.histogram.MapLoader;
 import com.wavefront.agent.histogram.QueuingChannelHandler;
 import com.wavefront.agent.histogram.tape.TapeDeck;
 import com.wavefront.agent.histogram.Utils;
-import com.wavefront.agent.histogram.tape.TapeReportPointConverter;
 import com.wavefront.agent.histogram.tape.TapeStringListConverter;
 import com.wavefront.api.agent.AgentConfiguration;
 import com.wavefront.api.agent.Constants;
@@ -33,29 +34,22 @@ import com.wavefront.ingester.StringLineIngester;
 import com.wavefront.ingester.TcpIngester;
 import com.yammer.metrics.reporting.ConsoleReporter;
 
-import org.apache.avro.io.BinaryEncoder;
-import org.apache.avro.io.DatumWriter;
-import org.apache.avro.io.DecoderFactory;
-import org.apache.avro.io.EncoderFactory;
-import org.apache.avro.specific.SpecificDatumReader;
-import org.apache.avro.specific.SpecificDatumWriter;
 import org.glassfish.jersey.jackson.JacksonFeature;
 import org.glassfish.jersey.jetty.JettyHttpContainerFactory;
 import org.glassfish.jersey.server.ResourceConfig;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.OutputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.IdentityHashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 
 import javax.annotation.Nullable;
 
@@ -67,7 +61,8 @@ import io.netty.channel.ChannelOption;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
-import sunnylabs.report.ReportPoint;
+
+import static com.google.common.base.Preconditions.checkArgument;
 
 /**
  * Push-only Agent.
@@ -103,24 +98,110 @@ public class PushAgent extends AbstractAgent {
         startGraphiteListener(strPort, null);
       }
     }
-    // For each listener port, set up the entire pipeline
 
-    // TODO change this
-    startHistogramListener(
-        "28800",
-        new File("/Users/timschmidt/agent/"),
-        Utils.Granularity.MINUTE,
-        new TapeDeck<>(TapeStringListConverter.get()),
-        new TapeDeck<>(TapeReportPointConverter.get()),
-        TimeUnit.SECONDS.toMillis(30)
-    );
+    {
+      // Histogram bootstrap.
+      Iterator<String> histMinPorts = Strings.isNullOrEmpty(histogramMinsListenerPorts) ?
+          Collections.emptyIterator() :
+          Splitter.on(",").omitEmptyStrings().trimResults().split(histogramMinsListenerPorts).iterator();
 
-//    if (histogramMinsListenerPorts != null) {
-//      Iterable<String> ports = Splitter.on(",").omitEmptyStrings().trimResults().split(histogramMinsListenerPorts);
-//      for (String strPort : ports) {
-////        startHistogramListener(strPort, null);
-//      }
-//    }
+      Iterator<String> histHourPorts = Strings.isNullOrEmpty(histogramHoursListenerPorts) ?
+          Collections.emptyIterator() :
+          Splitter.on(",").omitEmptyStrings().trimResults().split(histogramHoursListenerPorts).iterator();
+
+      Iterator<String> histDayPorts = Strings.isNullOrEmpty(histogramDaysListenerPorts) ?
+          Collections.emptyIterator() :
+          Splitter.on(",").omitEmptyStrings().trimResults().split(histogramDaysListenerPorts).iterator();
+
+      if (histDayPorts.hasNext() || histHourPorts.hasNext() || histMinPorts.hasNext()) {
+        // Print metrics to console for debug purposes TODO remove
+        ConsoleReporter.enable(20L, TimeUnit.SECONDS);
+
+        // Check directory
+        File baseDirectory = new File(histogramStateDirectory);
+        checkArgument(baseDirectory.isDirectory(), baseDirectory.getAbsolutePath() + " must be a directory!");
+        checkArgument(baseDirectory.canWrite(), baseDirectory.getAbsolutePath() + " must be write-able!");
+
+        // Accumulator
+        MapLoader<HistogramKey, AgentDigest, HistogramKeyMarshaller, AgentDigestMarshaller> mapLoader = new MapLoader<>(
+            HistogramKey.class,
+            AgentDigest.class,
+            histogramAccumulatorSize,
+            avgHistogramKeyBytes,
+            avgHistogramDigestBytes,
+            HistogramKeyMarshaller.get(),
+            AgentDigestMarshaller.get());
+
+        File accumulationFile = new File(baseDirectory, "accumulator");
+        ConcurrentMap<HistogramKey, AgentDigest> accumulator = mapLoader.get(accumulationFile);
+
+        AccumulationCache cachedAccumulator = new AccumulationCache(accumulator, histogramAccumulatorSize, null);
+        // Schedule write-backs
+        histogramExecutor.scheduleWithFixedDelay(
+            cachedAccumulator.getResolveTask(),
+            histogramAccumulatorResolveInterval,
+            histogramAccumulatorResolveInterval,
+            TimeUnit.MILLISECONDS);
+
+        // Central dispatch
+        PointHandler histogramHandler = new PointHandlerImpl(
+            "histogram ports",
+            pushValidationLevel,
+            pushBlockedSamples,
+            prefix,
+            getFlushTasks(Constants.PUSH_FORMAT_HISTOGRAM, "histogram ports"));
+        PointHandlerDispatcher dispatchTask = new PointHandlerDispatcher(accumulator, histogramHandler);
+        histogramExecutor.scheduleWithFixedDelay(dispatchTask, 100L, 1L, TimeUnit.MICROSECONDS);
+
+        // Input queue factory
+        TapeDeck<List<String>> accumulatorDeck = new TapeDeck<>(TapeStringListConverter.get());
+
+        // Minute ports...
+        histMinPorts.forEachRemaining(port -> {
+          startHistogramListener(
+              port,
+              histogramHandler,
+              cachedAccumulator,
+              baseDirectory,
+              Utils.Granularity.MINUTE,
+              accumulatorDeck,
+              TimeUnit.SECONDS.toMillis(histogramMinuteAccumulationInterval),
+              histogramMinuteAccumulators
+          );
+          logger.info("listening on port: " + port + " for histogram samples, accumulating to the minute");
+        });
+
+        // Hour ports...
+        histHourPorts.forEachRemaining(port->{
+          startHistogramListener(
+              port,
+              histogramHandler,
+              cachedAccumulator,
+              baseDirectory,
+              Utils.Granularity.HOUR,
+              accumulatorDeck,
+              TimeUnit.SECONDS.toMillis(histogramHourAccumulationInterval),
+              histogramHourAccumulators
+          );
+          logger.info("listening on port: " + port + " for histogram samples, accumulating to the hour");
+        });
+
+        // Day ports...
+        histDayPorts.forEachRemaining(port->{
+          startHistogramListener(
+              port,
+              histogramHandler,
+              cachedAccumulator,
+              baseDirectory,
+              Utils.Granularity.DAY,
+              accumulatorDeck,
+              TimeUnit.SECONDS.toMillis(histogramDayAccumulationInterval),
+              histogramDayAccumulators
+          );
+          logger.info("listening on port: " + port + " for histogram samples, accumulating to the day");
+        });
+      }
+    }
 
     GraphiteFormatter graphiteFormatter = null;
     if (graphitePorts != null || picklePorts != null) {
@@ -156,15 +237,15 @@ public class PushAgent extends AbstractAgent {
     if (httpJsonPorts != null) {
       Iterable<String> ports = Splitter.on(",").omitEmptyStrings().trimResults().split(httpJsonPorts);
       for (String strPort : ports) {
-        if (strPort.trim().length() > 0) {
+        strPort = strPort.trim();
+        if (strPort.length() > 0) {
           try {
-            int port = Integer.parseInt(strPort);
             // will immediately start the server.
             JettyHttpContainerFactory.createServer(
                 new URI("http://localhost:" + strPort + "/"),
                 new ResourceConfig(JacksonFeature.class).
-                    register(new JsonMetricsEndpoint(port, hostname, prefix,
-                        pushValidationLevel, pushBlockedSamples, getFlushTasks(port))), true);
+                    register(new JsonMetricsEndpoint(strPort, hostname, prefix,
+                        pushValidationLevel, pushBlockedSamples, getFlushTasks(strPort))), true);
             logger.info("listening on port: " + strPort + " for HTTP JSON metrics");
           } catch (URISyntaxException e) {
             throw new RuntimeException("Unable to bind to: " + strPort + " for HTTP JSON metrics", e);
@@ -175,15 +256,15 @@ public class PushAgent extends AbstractAgent {
     if (writeHttpJsonPorts != null) {
       Iterable<String> ports = Splitter.on(",").omitEmptyStrings().trimResults().split(writeHttpJsonPorts);
       for (String strPort : ports) {
-        if (strPort.trim().length() > 0) {
+        strPort = strPort.trim();
+        if (strPort.length() > 0) {
           try {
-            int port = Integer.parseInt(strPort);
             // will immediately start the server.
             JettyHttpContainerFactory.createServer(
                 new URI("http://localhost:" + strPort + "/"),
                 new ResourceConfig(JacksonFeature.class).
-                    register(new WriteHttpJsonMetricsEndpoint(port, hostname, prefix,
-                        pushValidationLevel, pushBlockedSamples, getFlushTasks(port))),
+                    register(new WriteHttpJsonMetricsEndpoint(strPort, hostname, prefix,
+                        pushValidationLevel, pushBlockedSamples, getFlushTasks(strPort))),
                 true);
             logger.info("listening on port: " + strPort + " for Write HTTP JSON metrics");
           } catch (URISyntaxException e) {
@@ -196,13 +277,13 @@ public class PushAgent extends AbstractAgent {
 
   protected void startOpenTsdbListener(String strPort) {
     final int port = Integer.parseInt(strPort);
-    final PostPushDataTimedTask[] flushTasks = getFlushTasks(port);
+    final PostPushDataTimedTask[] flushTasks = getFlushTasks(strPort);
     ChannelInitializer initializer = new ChannelInitializer<SocketChannel>() {
       @Override
       public void initChannel(SocketChannel ch) throws Exception {
         final ChannelHandler handler = new OpenTSDBPortUnificationHandler(
             new OpenTSDBDecoder("unknown", customSourceTags),
-            port, prefix, pushValidationLevel, pushBlockedSamples, flushTasks, opentsdbWhitelistRegex,
+            strPort, prefix, pushValidationLevel, pushBlockedSamples, flushTasks, opentsdbWhitelistRegex,
             opentsdbBlacklistRegex);
         ChannelPipeline pipeline = ch.pipeline();
         pipeline.addLast(new PlainTextOrHttpFrameDecoder(handler));
@@ -217,8 +298,8 @@ public class PushAgent extends AbstractAgent {
     // Set up a custom handler
     ChannelHandler handler = new ChannelByteArrayHandler(
         new PickleProtocolDecoder("unknown", customSourceTags, formatter.getMetricMangler(), port),
-        port, prefix, pushValidationLevel, pushBlockedSamples,
-        getFlushTasks(port), whitelistRegex, blacklistRegex);
+        strPort, prefix, pushValidationLevel, pushBlockedSamples,
+        getFlushTasks(strPort), whitelistRegex, blacklistRegex);
 
     // create a class to use for StreamIngester to get a new FrameDecoder
     // for each request (not shareable since it's storing how many bytes
@@ -263,7 +344,7 @@ public class PushAgent extends AbstractAgent {
     int port = Integer.parseInt(strPort);
     // Set up a custom graphite handler, with no formatter
     ChannelHandler graphiteHandler = new ChannelStringHandler(new GraphiteDecoder("unknown", customSourceTags),
-        port, prefix, pushValidationLevel, pushBlockedSamples, getFlushTasks(port), formatter, whitelistRegex,
+        strPort, prefix, pushValidationLevel, pushBlockedSamples, getFlushTasks(strPort), formatter, whitelistRegex,
         blacklistRegex);
 
     if (formatter == null) {
@@ -289,122 +370,43 @@ public class PushAgent extends AbstractAgent {
    */
   protected void startHistogramListener(
       String portAsString,
+      PointHandler handler,
+      AccumulationCache accumulationCache,
       File directory,
       Utils.Granularity granularity,
       TapeDeck<List<String>> receiveDeck,
-      TapeDeck<ReportPoint> sendDeck,
-      long timeToLiveMillis) {
-    Preconditions.checkNotNull(portAsString);
-    Preconditions.checkNotNull(directory);
-    Preconditions.checkArgument(directory.isDirectory(), directory.getAbsolutePath() + " must be a directory!");
-    Preconditions.checkArgument(directory.canWrite(), directory.getAbsolutePath() + " must be write-able!");
-    Preconditions.checkNotNull(granularity);
-    Preconditions.checkNotNull(receiveDeck);
-    Preconditions.checkNotNull(sendDeck);
-    ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(4);
-
-    // Print metrics to console for debug purposes
-    ConsoleReporter.enable(20L, TimeUnit.SECONDS);
+      long timeToLiveMillis,
+      int fanout) {
 
     int port = Integer.parseInt(portAsString);
-//    File tapeFile = new File(directory, granularity.name() + "_" + portAsString);
-    File outTapeFile = new File(directory, "sendTape");
-//    ObjectQueue<List<String>> receiveTape = receiveDeck.getTape(tapeFile);
-    ObjectQueue<ReportPoint> sendTape = sendDeck.getTape(outTapeFile);
-
-    // TODO remove the decorator.
-    PointHandlerLoggingDecorator pointHandler = new PointHandlerLoggingDecorator(
-        new PointHandlerImpl(
-            port,
-            pushValidationLevel,
-            pushBlockedSamples,
-            prefix,
-            getFlushTasks(Constants.PUSH_FORMAT_HISTOGRAM, port)));
-
-    scheduler.scheduleWithFixedDelay(pointHandler.getLoggingTask(), 10L, 10L, TimeUnit.SECONDS);
-
-    // TODO This needs to be passed in and reused across handlers
-    MapLoader<Utils.HistogramKey, AgentDigest, Utils.HistogramKeyMarshaller, AgentDigest.AgentDigestMarshaller> loader =
-        new MapLoader<>(
-            Utils.HistogramKey.class,
-            AgentDigest.class,
-            100000L,
-            200D,
-            1000D,
-            Utils.HistogramKeyMarshaller.get(),
-            AgentDigest.AgentDigestMarshaller.get());
-
-    File mapFile = new File(directory, "mapfile");
-    ConcurrentMap<Utils.HistogramKey, AgentDigest> map = loader.get(mapFile);
-
-    // TODO Should be done outside of this too and shared across handlers Local Cache
-    AccumulationCache cache = new AccumulationCache(map, 10000000L, null);
-
-    scheduler.scheduleWithFixedDelay(cache.getResolveTask(), 100L, 100L, TimeUnit.MILLISECONDS);
-
-    // TODO, Set-up dispatcher should happen outside of this (it is global across ports)
-    PointHandlerDispatcher dispatchTask = new PointHandlerDispatcher(map, pointHandler);
-    scheduler.scheduleWithFixedDelay(dispatchTask, 100L, 1L, TimeUnit.MICROSECONDS);
-
-    // Set-up dispatcher
-//    TapeDispatcher dispatchTask = new TapeDispatcher(map, sendTape);
-//    scheduler.scheduleWithFixedDelay(dispatchTask, 100L, 1L, TimeUnit.MICROSECONDS);
-//
-//    DroppingSender sendTask = new DroppingSender(sendTape);
-//    scheduler.scheduleWithFixedDelay(sendTask, 100L, 1L, TimeUnit.MICROSECONDS);
-
-
     List<ChannelHandler> handlers = new ArrayList<>();
-    for (int i=0; i<4; ++i) {
+
+    for (int i = 0; i < fanout; ++i) {
       File tapeFile = new File(directory, granularity.name() + "_" + portAsString + "_" + i);
       ObjectQueue<List<String>> receiveTape = receiveDeck.getTape(tapeFile);
 
       // Set-up scanner
       AccumulationTask scanTask = new AccumulationTask(
           receiveTape,
-          cache.getCache().asMap(),
+          accumulationCache.getCache().asMap(),
           new GraphiteDecoder("unknown", customSourceTags),
-          pointHandler,
+          handler,
           Validation.Level.valueOf(pushValidationLevel),
           timeToLiveMillis,
           granularity);
 
-      scheduler.scheduleWithFixedDelay(scanTask, 100L, 1L, TimeUnit.MICROSECONDS);
+      histogramExecutor.scheduleWithFixedDelay(scanTask, 100L, 1L, TimeUnit.MICROSECONDS);
 
-      QueuingChannelHandler<String> handler = new QueuingChannelHandler<>(receiveTape, 100);
-      handlers.add(handler);
-      scheduler.scheduleWithFixedDelay(handler.getBufferFlushTask(), 85L, 1L, TimeUnit.MICROSECONDS);
+      QueuingChannelHandler<String> inputHandler = new QueuingChannelHandler<>(receiveTape, 100);
+      handlers.add(inputHandler);
+      histogramExecutor.scheduleWithFixedDelay(inputHandler.getBufferFlushTask(), 85L, 1L, TimeUnit.MICROSECONDS);
     }
-//    QueuingChannelHandler<String> handler = new QueuingChannelHandler<>(receiveTape, 100);
-//    scheduler.scheduleWithFixedDelay(handler.getBufferFlushTask(), 85L, 1L, TimeUnit.MICROSECONDS);
 
     // Set-up producer
     new Thread(
         new HistogramLineIngester(
             handlers,
             port)).start();
-
-
-//    // Run the same setup as above but pass a special PointHandler to the ChannelStringHandler to accumulate based on tags and metric
-//    ChannelHandler handler = new ChannelStringHandler(
-//        new GraphiteDecoder("unknown", customSourceTags),
-//        null, // TODO This should be the PointHandler
-//        new MetricWhiteBlackList(whitelistRegex, blacklistRegex, portAsString),
-//        formatter);
-//
-//    if (formatter == null) {
-//      List<Function<Channel, ChannelHandler>> decoders = Lists.newArrayList(1);
-//      decoders.add(new Function<Channel, ChannelHandler>() {
-//        @Override
-//        public ChannelHandler apply(Channel input) {
-//          SocketChannel ch = (SocketChannel) input;
-//          return new GraphiteHostAnnotator(ch.remoteAddress().getHostName(), customSourceTags);
-//        }
-//      });
-//      new Thread(new StringLineIngester(decoders, handler, port)).start();
-//    } else {
-//      new Thread(new StringLineIngester(handler, port)).start();
-//    }
   }
 
   /**

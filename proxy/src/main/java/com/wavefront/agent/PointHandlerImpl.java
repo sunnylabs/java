@@ -31,7 +31,7 @@ public class PointHandlerImpl implements PointHandler {
 
   private final Histogram receivedPointLag;
   private final String validationLevel;
-  private final int port;
+  private final String handle;
 
   @Nullable
   private final String prefix;
@@ -39,25 +39,25 @@ public class PointHandlerImpl implements PointHandler {
   protected final int blockedPointsPerBatch;
   protected final PostPushDataTimedTask[] sendDataTasks;
 
-  public PointHandlerImpl(final int port,
+  public PointHandlerImpl(final String handle,
                           final String validationLevel,
                           final int blockedPointsPerBatch,
                           final PostPushDataTimedTask[] sendDataTasks) {
-    this(port, validationLevel, blockedPointsPerBatch, null, sendDataTasks);
+    this(handle, validationLevel, blockedPointsPerBatch, null, sendDataTasks);
   }
 
-  public PointHandlerImpl(final int port,
+  public PointHandlerImpl(final String handle,
                           final String validationLevel,
                           final int blockedPointsPerBatch,
                           @Nullable final String prefix,
                           final PostPushDataTimedTask[] sendDataTasks) {
     this.validationLevel = validationLevel;
-    this.port = port;
+    this.handle = handle;
     this.blockedPointsPerBatch = blockedPointsPerBatch;
     this.prefix = prefix;
 
     this.receivedPointLag = Metrics.newHistogram(
-        new MetricName("points." + String.valueOf(port) + ".received", "", "lag"));
+        new MetricName("points." + handle + ".received", "", "lag"));
 
     this.sendDataTasks = sendDataTasks;
   }
@@ -71,7 +71,7 @@ public class PointHandlerImpl implements PointHandler {
       }
       validatePoint(
           point,
-          "" + port,
+          "" + handle,
           debugLine,
           validationLevel == null ? null : Validation.Level.valueOf(validationLevel));
 

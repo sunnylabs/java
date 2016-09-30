@@ -35,7 +35,7 @@ public class JsonMetricsEndpoint extends PointHandlerImpl {
   private final String prefix;
   private final String defaultHost;
 
-  public JsonMetricsEndpoint(final int port, final String host,
+  public JsonMetricsEndpoint(final String port, final String host,
                              @Nullable
                              final String prefix, final String validationLevel, final int blockedPointsPerBatch,
                              PostPushDataTimedTask[] postPushDataTimedTasks) {

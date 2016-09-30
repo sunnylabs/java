@@ -18,6 +18,7 @@ import io.netty.channel.SimpleChannelInboundHandler;
  *
  * @author Tim Schmidt (tim@wavefront.com).
  */
+@ChannelHandler.Sharable
 public class QueuingChannelHandler<T> extends SimpleChannelInboundHandler<Object> {
   private final ObjectQueue<List<T>> tape;
   private List<T> buffer;

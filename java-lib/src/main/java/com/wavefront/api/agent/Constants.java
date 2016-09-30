@@ -19,7 +19,7 @@ public abstract class Constants {
   public static final String PUSH_FORMAT_GRAPHITE_V2 = "graphite_v2";
 
   /**
-   * Wavefront histogram  format
+   * Wavefront histogram format
    */
   public static final String PUSH_FORMAT_HISTOGRAM = "histogram";
   /**
