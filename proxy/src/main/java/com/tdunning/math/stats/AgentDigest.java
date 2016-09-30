@@ -90,7 +90,7 @@ public class AgentDigest extends AbstractTDigest {
   private long dispatchTimeMillis;
 
   // Must be between 20 and 1000 (at least MergingDigest clamps to that range)
-  private static final double COMPRESSION = 20D;
+  private static final double COMPRESSION = 200D;
 
   static {
     Preconditions.checkArgument(COMPRESSION >= 20D);

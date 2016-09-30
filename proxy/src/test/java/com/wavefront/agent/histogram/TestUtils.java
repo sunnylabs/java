@@ -1,5 +1,7 @@
 package com.wavefront.agent.histogram;
 
+import java.util.concurrent.TimeUnit;
+
 import sunnylabs.report.Histogram;
 import sunnylabs.report.ReportPoint;
 
@@ -16,7 +18,8 @@ public final class TestUtils {
     // final abstract...
   }
 
-  public static long DEFAULT_TIME_MILLIS = 1471554059000L;
+  public static long DEFAULT_TIME_MILLIS =
+      TimeUnit.MINUTES.toMillis(TimeUnit.MILLISECONDS.toMinutes(System.currentTimeMillis()));
   public static double DEFAULT_VALUE = 1D;
 
   public static HistogramKey makeKey(String metric) {
@@ -26,7 +29,7 @@ public final class TestUtils {
   }
 
 
-  public static void testKeyPointMatch(HistogramKey key, ReportPoint point) {
+  static void testKeyPointMatch(HistogramKey key, ReportPoint point) {
     assertThat(key).isNotNull();
     assertThat(point).isNotNull();
     assertThat(point.getValue()).isNotNull();

@@ -16,6 +16,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import static com.google.common.truth.Truth.assertThat;
 
 /**
+ * Unit tests around {@link AccumulationCache}
+ *
  * @author Tim Schmidt (tim@wavefront.com).
  */
 public class AccumulationCacheTest {
