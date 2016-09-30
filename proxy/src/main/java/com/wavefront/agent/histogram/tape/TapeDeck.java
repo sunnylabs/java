@@ -6,6 +6,7 @@ import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 
 import com.squareup.tape.FileObjectQueue;
+import com.squareup.tape.InMemoryObjectQueue;
 import com.squareup.tape.ObjectQueue;
 import com.yammer.metrics.Metrics;
 import com.yammer.metrics.core.Counter;
@@ -21,13 +22,7 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * Manages Square Tape queues used by this agent.
- *
- * TODO:
- * Cleanup
- * Use the wavefront-specfic tape fork.
- * Add load error handling
- * Add tests
+ * Factory for Square Tape {@link ObjectQueue} instances for this agent.
  *
  * @author Tim Schmidt (tim@wavefront.com).
  */
@@ -36,13 +31,16 @@ public class TapeDeck<T> {
 
   private final LoadingCache<File, ObjectQueue<T>> queues;
 
+  /**
+   * @param converter payload (de-)/serializer.
+   */
   public TapeDeck(final FileObjectQueue.Converter<T> converter) {
 
     queues = CacheBuilder.newBuilder().build(new CacheLoader<File, ObjectQueue<T>>() {
       @Override
       public ObjectQueue<T> load(@NotNull File file) throws Exception {
 
-        FileObjectQueue<T> queue;
+        ObjectQueue<T> queue;
 
         // We need exclusive ownership of the file for this deck.
         // This is really no guarantee that we have exclusive access to the file (see e.g. goo.gl/i4S7ha)
@@ -51,11 +49,13 @@ public class TapeDeck<T> {
           FileChannel channel = new RandomAccessFile(file, "rw").getChannel();
           Preconditions.checkNotNull(channel.tryLock());
         } catch (Exception e) {
-          // TODO on an IOException, (potentially also look for File is corrupt in the msg), move/delete file and retry
-          throw e;
+          logger.log(Level.SEVERE, "Error while loading persisted Tape Queue" + file, e);
+          logger.log(Level.WARNING, "Falling back to an in-memory queue for file '" + file +
+              "'. Please move or delete the file and restart the agent.");
+          queue = new InMemoryObjectQueue<>();
         }
 
-        return new ObjectQueueWrapper<T>(queue, file.getName());
+        return new ReportingObjectQueueWrapper<>(queue, file.getName());
       }
     });
   }
@@ -66,21 +66,20 @@ public class TapeDeck<T> {
       return queues.get(f);
     } catch (Exception e) {
       logger.log(Level.SEVERE, "Error while loading " + f, e);
-
-      return null;
+      throw new RuntimeException("Unable to provide ObjectQueue", e);
     }
   }
 
   /**
-   * Threadsafe ObjectQueue wrapper;
+   * Threadsafe ObjectQueue wrapper with add, remove and peek counters;
    */
-  private static class ObjectQueueWrapper<T> implements ObjectQueue<T> {
+  private static class ReportingObjectQueueWrapper<T> implements ObjectQueue<T> {
     private final ObjectQueue<T> backingQueue;
     private final Counter addCounter;
     private final Counter removeCounter;
     private final Counter peekCounter;
 
-    ObjectQueueWrapper(ObjectQueue<T> backingQueue, String title) {
+    ReportingObjectQueueWrapper(ObjectQueue<T> backingQueue, String title) {
       this.addCounter = Metrics.newCounter(new MetricName("tape." + title, "", "add"));
       this.removeCounter = Metrics.newCounter(new MetricName("tape." + title, "", "remove"));
       this.peekCounter = Metrics.newCounter(new MetricName("tape." + title, "", "peek"));
