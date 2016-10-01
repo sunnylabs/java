@@ -10,22 +10,20 @@ import net.openhft.chronicle.hash.serialization.BytesWriter;
 import net.openhft.chronicle.hash.serialization.SizedReader;
 import net.openhft.chronicle.hash.serialization.SizedWriter;
 import net.openhft.chronicle.map.ChronicleMap;
+import net.openhft.chronicle.map.VanillaChronicleMap;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Proxy/coordinator for loading a chronicle map across multiple threads. If a file already exists at the given location,
- * will make an attempt to load the map from the existing file.
- * TODO Error handling?/
+ * Loader for {@link ChronicleMap}. If a file already exists at the given location, will make an attempt to load the map
+ * from the existing file. Will fall-back to an in memory representation if the file cannot be loaded (see logs).
  *
- * This is a little nasty in that in continuous operation, the initial key/value/entry sizes cannot be fixed
- * TODO the marshaller typing is quite lame
- * TODO better name
  * @author Tim Schmidt (tim@wavefront.com).
  */
-public class MapLoader<K,V, KM extends BytesReader<K> & BytesWriter<K>, VM extends SizedReader<V> & SizedWriter<V>> {
+public class MapLoader<K, V, KM extends BytesReader<K> & BytesWriter<K>, VM extends SizedReader<V> & SizedWriter<V>> {
   private static final Logger logger = Logger.getLogger(MapLoader.class.getCanonicalName());
 
   private final Class<K> keyClass;
@@ -35,37 +33,85 @@ public class MapLoader<K,V, KM extends BytesReader<K> & BytesWriter<K>, VM exten
   private final double avgValueSize;
   private final KM keyMarshaller;
   private final VM valueMarshaller;
-  private final LoadingCache<File, ChronicleMap<K,V>> maps = CacheBuilder.newBuilder().build(new CacheLoader<File, ChronicleMap<K, V>>() {
-    @Override
-    public ChronicleMap<K, V> load(File file) throws Exception {
-      if (file.exists()) {
-        // Note: this relies on an uncorrupted header, which according to the docs would be due to a hardware error or fs bug.
-        // TODO handle corrupted file (probably rename existing file and create new map)
-        // TODO call this chronicle map factory?
-        // TODO probably store PointShortHands as keys
+  private final LoadingCache<File, ChronicleMap<K, V>> maps =
+      CacheBuilder.newBuilder().build(new CacheLoader<File, ChronicleMap<K, V>>() {
 
-        // TODO Find a way to check persisted header against, likely just cast to VanillaMap or ReplicatedMap and at least compare the key value classes
-        return ChronicleMap.of(keyClass, valueClass).recoverPersistedTo(file, false);
-      } else {
-        return ChronicleMap.of(keyClass, valueClass)
-            .keyMarshaller(keyMarshaller)
-            .valueMarshaller(valueMarshaller)
-            .entries(entries)
-            .averageKeySize(avgKeySize)
-            .averageValueSize(avgValueSize)
-            .createPersistedTo(file);
-      }
-    }
-  });
+        private ChronicleMap<K, V> newPersistedMap(File file) throws IOException {
+          return ChronicleMap.of(keyClass, valueClass)
+              .keyMarshaller(keyMarshaller)
+              .valueMarshaller(valueMarshaller)
+              .entries(entries)
+              .averageKeySize(avgKeySize)
+              .averageValueSize(avgValueSize)
+              .createPersistedTo(file);
+        }
+
+        private ChronicleMap<K, V> newInMemoryMap() {
+          return ChronicleMap.of(keyClass, valueClass)
+              .keyMarshaller(keyMarshaller)
+              .valueMarshaller(valueMarshaller)
+              .entries(entries)
+              .averageKeySize(avgKeySize)
+              .averageValueSize(avgValueSize)
+              .create();
+        }
+
+        @Override
+        public ChronicleMap<K, V> load(File file) throws Exception {
+
+          try {
+            if (file.exists()) {
+              // Note: this relies on an uncorrupted header, which according to the docs would be due to a hardware error or fs bug.
+              ChronicleMap<K, V> result = ChronicleMap
+                  .of(keyClass, valueClass)
+                  .entries(entries)
+                  .averageKeySize(avgKeySize)
+                  .averageValueSize(avgValueSize)
+                  .recoverPersistedTo(file, false);
+
+              if (result.isEmpty()) {
+                // Create a new map with the supplied settings to be safe.
+                result.close();
+                file.delete();
+                result = newPersistedMap(file);
+              } else {
+                // Note: as of 3.10 all instances are.
+                if (result instanceof VanillaChronicleMap) {
+                  VanillaChronicleMap vcm = (VanillaChronicleMap) result;
+                  if (!vcm.keyClass().equals(keyClass) ||
+                      !vcm.valueClass().equals(valueClass)) {
+                    throw new IllegalStateException("Persisted map params are not matching expected map params "
+                        + " key " + "exp: " + keyClass.getSimpleName() + " act: " + vcm.keyClass().getSimpleName()
+                        + " val " + "exp: " + valueClass.getSimpleName() + " act: " + vcm.valueClass().getSimpleName());
+                  }
+                }
+              }
+              return result;
+
+            } else {
+              return newPersistedMap(file);
+            }
+          } catch (Exception e) {
+            logger.log(
+                Level.SEVERE,
+                "Failed to load/create map at '" + file.getAbsolutePath() +
+                    "', falling back to an in-memory map. Reason: ",
+                e);
+            return newInMemoryMap();
+          }
+        }
+      });
 
   /**
+   * Creates a new {@link MapLoader}
    *
-   * @param keyClass
-   * @param valueClass
-   * @param entries
-   * @param avgKeySize
-   * @param avgValueSize
-   * @param valueMarshaller
+   * @param keyClass the Key class
+   * @param valueClass the Value class
+   * @param entries the maximum number of entries
+   * @param avgKeySize the average marshaled key size in bytes
+   * @param avgValueSize the average marshaled value size in bytes
+   * @param keyMarshaller the key codec
+   * @param valueMarshaller the value codec
    */
   public MapLoader(Class<K> keyClass,
                    Class<V> valueClass,
@@ -83,7 +129,7 @@ public class MapLoader<K,V, KM extends BytesReader<K> & BytesWriter<K>, VM exten
     this.valueMarshaller = valueMarshaller;
   }
 
-  public ChronicleMap<K,V> get(File f) {
+  public ChronicleMap<K, V> get(File f) {
     Preconditions.checkNotNull(f);
     try {
       return maps.get(f);
@@ -91,5 +137,19 @@ public class MapLoader<K,V, KM extends BytesReader<K> & BytesWriter<K>, VM exten
       logger.log(Level.SEVERE, "Failed loading map for " + f, e);
       return null;
     }
+  }
+
+  @Override
+  public String toString() {
+    return "MapLoader{" +
+        "keyClass=" + keyClass +
+        ", valueClass=" + valueClass +
+        ", entries=" + entries +
+        ", avgKeySize=" + avgKeySize +
+        ", avgValueSize=" + avgValueSize +
+        ", keyMarshaller=" + keyMarshaller +
+        ", valueMarshaller=" + valueMarshaller +
+        ", maps=" + maps +
+        '}';
   }
 }
