@@ -38,6 +38,7 @@ public class AccumulationTaskTest {
   private List<String> badPointsOut;
   private AccumulationTask subject;
   private final static long TTL = 30L;
+  private final static  short COMPRESSION = 100;
 
   private String lineA = "keyA " + DEFAULT_VALUE + " " + DEFAULT_TIME_MILLIS;
   private String lineB = "keyB " + DEFAULT_VALUE + " " + DEFAULT_TIME_MILLIS;
@@ -74,7 +75,8 @@ public class AccumulationTaskTest {
         },
         Validation.Level.NUMERIC_ONLY,
         TTL,
-        MINUTE);
+        MINUTE,
+        COMPRESSION);
   }
 
   @Test

@@ -209,7 +209,11 @@ public abstract class AbstractAgent {
           "source and tags concatenation.")
   protected int avgHistogramKeyBytes = 200;
 
-  // TODO Make this a function of Histogram ACCURACY?
+  @Parameter(
+      names = {"--histogramCompression"},
+      description = "Controls allowable number of centroids per histogram. Must be in [20;1000]")
+  protected short histogramCompression = 100;
+
   @Parameter(
       names = {"--avgHistogramDigestBytes"},
       description = "Average number of bytes in a encoded histogram.")

@@ -27,8 +27,10 @@ import static com.wavefront.agent.histogram.TestUtils.makeKey;
  * @author Tim Schmidt (tim@wavefront.com).
  */
 public class MapLoaderTest {
+  private final static short COMPRESSION = 100;
+
   private HistogramKey key = makeKey("mapLoaderTest");
-  private AgentDigest digest = new AgentDigest(100L);
+  private AgentDigest digest = new AgentDigest(COMPRESSION, 100L);
   private File file;
   private MapLoader<HistogramKey, AgentDigest, HistogramKeyMarshaller, AgentDigestMarshaller> loader;
 

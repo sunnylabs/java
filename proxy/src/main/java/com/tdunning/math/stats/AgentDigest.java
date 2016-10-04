@@ -2,6 +2,9 @@ package com.tdunning.math.stats;
 
 import com.google.common.base.Preconditions;
 
+import com.yammer.metrics.Metrics;
+import com.yammer.metrics.core.MetricName;
+
 import net.openhft.chronicle.bytes.Bytes;
 import net.openhft.chronicle.core.io.IORuntimeException;
 import net.openhft.chronicle.core.util.ReadResolvable;
@@ -52,6 +55,8 @@ import sunnylabs.report.HistogramType;
  * strategy.
  */
 public class AgentDigest extends AbstractTDigest {
+
+  private final short compression;
   // points to the centroid that is currently being merged
   // if weight[lastUsedCell] == 0, then this is the number of centroids
   // else the number is lastUsedCell+1
@@ -90,26 +95,39 @@ public class AgentDigest extends AbstractTDigest {
   private long dispatchTimeMillis;
 
   // Must be between 20 and 1000 (at least MergingDigest clamps to that range)
-  private static final double COMPRESSION = 200D;
+//  private static final double COMPRESSION = 200D;
 
-  static {
-    Preconditions.checkArgument(COMPRESSION >= 20D);
-    Preconditions.checkArgument(COMPRESSION <= 1000D);
-  }
+  // TODO check this at parse argument time
+//  static {
+//    Preconditions.checkArgument(COMPRESSION >= 20D);
+//    Preconditions.checkArgument(COMPRESSION <= 1000D);
+//  }
 
   // magic formula created by regressing against known sizes for sample compression values
-  private static final int DEFAULT_BUFFER_SIZE = (int) (7.5 + 0.37 * COMPRESSION - 2e-4 * COMPRESSION * COMPRESSION);
+//  private static final int DEFAULT_BUFFER_SIZE = (int) (7.5 + 0.37 * COMPRESSION - 2e-4 * COMPRESSION * COMPRESSION);
   // should only need ceiling(compression * PI / 2).  Double the allocation for now for safety
-  private static final int DEFAULT_SIZE = (int) (Math.PI * COMPRESSION + 0.5);
+//  private static final int DEFAULT_SIZE = (int) (Math.PI * COMPRESSION + 0.5);
 
-  public AgentDigest(long dispatchTimeMillis) {
-    weight = new double[DEFAULT_SIZE];
-    mean = new double[DEFAULT_SIZE];
-    mergeWeight = new double[DEFAULT_SIZE];
-    mergeMean = new double[DEFAULT_SIZE];
-    tempWeight = new double[DEFAULT_BUFFER_SIZE];
-    tempMean = new double[DEFAULT_BUFFER_SIZE];
-    order = new int[DEFAULT_BUFFER_SIZE];
+  private static int defaultSizeForCompression(short compression) {
+    return (int) (Math.PI * compression + 0.5);
+  }
+
+  private static int bufferSizeForCompression(short compression) {
+    return (int) (7.5 + 0.37 * compression - 2e-4 * compression * compression);
+  }
+
+  public AgentDigest(short compression, long dispatchTimeMillis) {
+    int numCentroids = defaultSizeForCompression(compression);
+    int numBuffered = bufferSizeForCompression(compression);
+
+    this.compression = compression;
+    weight = new double[numCentroids];
+    mean = new double[numCentroids];
+    mergeWeight = new double[numCentroids];
+    mergeMean = new double[numCentroids];
+    tempWeight = new double[numBuffered];
+    tempMean = new double[numBuffered];
+    order = new int[numBuffered];
 
     lastUsedCell = 0;
     this.dispatchTimeMillis = dispatchTimeMillis;
@@ -248,7 +266,6 @@ public class AgentDigest extends AbstractTDigest {
       }
       mergeData.get(lastUsedCell).addAll(newData);
     }
-
     return k1;
   }
 
@@ -304,7 +321,7 @@ public class AgentDigest extends AbstractTDigest {
    * @return The centroid scale value corresponding to q.
    */
   private double integratedLocation(double q) {
-    return COMPRESSION * (Math.asin(2 * q - 1) + Math.PI / 2) / Math.PI;
+    return compression * (Math.asin(2 * q - 1) + Math.PI / 2) / Math.PI;
   }
 
   @Override
@@ -345,7 +362,7 @@ public class AgentDigest extends AbstractTDigest {
 
   @Override
   public double compression() {
-    return COMPRESSION;
+    return compression;
   }
 
   @Override
@@ -391,9 +408,9 @@ public class AgentDigest extends AbstractTDigest {
   }
 
   /**
-   * Only comprises of the dispatch-time
+   * Comprises of the dispatch-time (8 bytes) + compression (2 bytes)
    */
-  private static final int FIXED_SIZE = 8;
+  private static final int FIXED_SIZE = 8 + 2;
   /**
    * Weight, mean float pair
    */
@@ -408,6 +425,9 @@ public class AgentDigest extends AbstractTDigest {
    */
   public static class AgentDigestMarshaller implements SizedReader<AgentDigest>, SizedWriter<AgentDigest>, ReadResolvable<AgentDigestMarshaller> {
     private static final AgentDigestMarshaller INSTANCE = new AgentDigestMarshaller();
+    private static final com.yammer.metrics.core.Histogram accumulatorValueSizes =
+        Metrics.newHistogram(new MetricName("histogram", "", "accumulatorValueSize"));
+
 
     private AgentDigestMarshaller() {
     }
@@ -420,8 +440,10 @@ public class AgentDigest extends AbstractTDigest {
     @Override
     public AgentDigest read(Bytes in, long size, @Nullable AgentDigest using) {
       Preconditions.checkArgument(size >= FIXED_SIZE);
-      if (using == null) {
-        using = new AgentDigest(in.readLong());
+      short compression = in.readShort();
+
+      if (using == null || using.compression != compression) {
+        using = new AgentDigest(compression, in.readLong());
       } else {
         using.dispatchTimeMillis = in.readLong();
       }
@@ -445,7 +467,9 @@ public class AgentDigest extends AbstractTDigest {
 
     @Override
     public long size(@NotNull AgentDigest toWrite) {
-      return toWrite.encodedSize();
+      long size = toWrite.encodedSize();
+      accumulatorValueSizes.update(size);
+      return size;
     }
 
     @Override
@@ -455,6 +479,9 @@ public class AgentDigest extends AbstractTDigest {
 
       // Just for sanity, comment out for production use
       Preconditions.checkArgument(size == toWrite.encodedSize());
+
+      // Write compression
+      out.writeShort(toWrite.compression);
 
       // Time
       out.writeLong(toWrite.dispatchTimeMillis);

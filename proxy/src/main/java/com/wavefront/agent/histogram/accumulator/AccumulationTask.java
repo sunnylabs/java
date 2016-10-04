@@ -39,6 +39,7 @@ public class AccumulationTask implements Runnable {
   private final Validation.Level validationLevel;
   private final long ttlMillis;
   private final Utils.Granularity granularity;
+  private final short compression;
 
   // Metrics
   private final Counter histogramCounter = Metrics.newCounter(new MetricName("histogram", "", "created"));
@@ -51,7 +52,8 @@ public class AccumulationTask implements Runnable {
                           PointHandler blockedPointsHandler,
                           Validation.Level validationLevel,
                           long ttlMillis,
-                          Utils.Granularity granularity) {
+                          Utils.Granularity granularity,
+                          short compression) {
     this.input = input;
     this.digests = digests;
     this.decoder = decoder;
@@ -59,6 +61,7 @@ public class AccumulationTask implements Runnable {
     this.validationLevel = validationLevel;
     this.ttlMillis = ttlMillis;
     this.granularity = granularity;
+    this.compression = compression;
   }
 
   @Override
@@ -104,7 +107,7 @@ public class AccumulationTask implements Runnable {
             accumulationCounter.inc();
             if (v == null) {
               histogramCounter.inc();
-              AgentDigest t = new AgentDigest(System.currentTimeMillis() + ttlMillis);
+              AgentDigest t = new AgentDigest(compression, System.currentTimeMillis() + ttlMillis);
               t.add(value);
               return t;
             } else {
@@ -124,6 +127,24 @@ public class AccumulationTask implements Runnable {
       }
       input.remove();
     }
+  }
+
+  @Override
+  public String toString() {
+    return "AccumulationTask{" +
+        "input=" + input +
+        ", digests=" + digests +
+        ", decoder=" + decoder +
+        ", points=" + points +
+        ", blockedPointsHandler=" + blockedPointsHandler +
+        ", validationLevel=" + validationLevel +
+        ", ttlMillis=" + ttlMillis +
+        ", granularity=" + granularity +
+        ", compression=" + compression +
+        ", histogramCounter=" + histogramCounter +
+        ", accumulationCounter=" + accumulationCounter +
+        ", ignoredCounter=" + ignoredCounter +
+        '}';
   }
 }
 

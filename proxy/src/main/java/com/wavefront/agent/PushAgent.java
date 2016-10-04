@@ -393,7 +393,8 @@ public class PushAgent extends AbstractAgent {
           handler,
           Validation.Level.valueOf(pushValidationLevel),
           timeToLiveMillis,
-          granularity);
+          granularity,
+          histogramCompression);
 
       histogramExecutor.scheduleWithFixedDelay(scanTask, 100L, 1L, TimeUnit.MICROSECONDS);
 

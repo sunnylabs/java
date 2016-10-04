@@ -10,7 +10,6 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 import sunnylabs.report.ReportPoint;
@@ -21,6 +20,8 @@ import static com.google.common.truth.Truth.assertThat;
  * @author Tim Schmidt (tim@wavefront.com).
  */
 public class PointHandlerDispatcherTest {
+  private final static short COMPRESSION = 100;
+
   private ConcurrentMap<Utils.HistogramKey, AgentDigest> in;
   private List<ReportPoint> pointOut;
   private List<String> debugLineOut;
@@ -40,8 +41,8 @@ public class PointHandlerDispatcherTest {
     pointOut = new LinkedList<>();
     debugLineOut = new LinkedList<>();
     blockedOut = new LinkedList<>();
-    digestA = new AgentDigest(100L);
-    digestB = new AgentDigest(1000L);
+    digestA = new AgentDigest(COMPRESSION, 100L);
+    digestB = new AgentDigest(COMPRESSION, 1000L);
     timeMillis = new AtomicLong(0L);
     subject = new PointHandlerDispatcher(in, new PointHandler() {
 

@@ -24,22 +24,21 @@ import static com.google.common.truth.Truth.assertThat;
  * @author Tim Schmidt (tim@wavefront.com).
  */
 public class LayeringTest {
+  private final static short COMPRESSION = 100;
+
   private ConcurrentMap<HistogramKey, AgentDigest> backingStore;
   private LoadingCache<HistogramKey, AgentDigest> cache;
   private Runnable writeBackTask;
-  private Layering.KeySetAccessor keySetAccessor;
   private HistogramKey keyA = TestUtils.makeKey("keyA");
-  private HistogramKey keyB = TestUtils.makeKey("keyB");
-  private AgentDigest digestA = new AgentDigest(100L);
-  private AgentDigest digestB = new AgentDigest(1000L);
-  private AgentDigest digestC = new AgentDigest(10000L);
+  private AgentDigest digestA = new AgentDigest(COMPRESSION, 100L);
+  private AgentDigest digestB = new AgentDigest(COMPRESSION, 1000L);
+  private AgentDigest digestC = new AgentDigest(COMPRESSION, 10000L);
   private AtomicLong tickerTime;
 
   @Before
   public void setup() {
     backingStore = new ConcurrentHashMap<>();
     Layering layering = new Layering(backingStore);
-    keySetAccessor = layering.getKeySetAccessor();
     writeBackTask = layering.getWriteBackTask();
     tickerTime = new AtomicLong(0L);
     cache = Caffeine.newBuilder()

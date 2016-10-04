@@ -4,6 +4,9 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 
 import com.tdunning.math.stats.AgentDigest;
+import com.yammer.metrics.Metrics;
+import com.yammer.metrics.core.Histogram;
+import com.yammer.metrics.core.MetricName;
 
 import net.openhft.chronicle.bytes.Bytes;
 import net.openhft.chronicle.core.io.IORuntimeException;
@@ -238,6 +241,8 @@ public final class Utils {
    */
   public static class HistogramKeyMarshaller implements BytesReader<HistogramKey>, BytesWriter<HistogramKey>, ReadResolvable<HistogramKeyMarshaller> {
     private static final HistogramKeyMarshaller INSTANCE = new HistogramKeyMarshaller();
+    private static final Histogram accumulatorKeySizes =
+        Metrics.newHistogram(new MetricName("histogram", "", "accumulatorKeySize"));
 
     private HistogramKeyMarshaller() {
       // Private Singleton
@@ -257,6 +262,7 @@ public final class Utils {
         byte[] bytes = s == null ? new byte[0] : s.getBytes("UTF-8");
         out.writeShort((short) bytes.length);
         out.write(bytes);
+        accumulatorKeySizes.update(bytes.length + 2);
       } catch (UnsupportedEncodingException e) {
         logger.log(Level.SEVERE, "Likely programmer error, String to Byte encoding failed: ", e);
         e.printStackTrace();

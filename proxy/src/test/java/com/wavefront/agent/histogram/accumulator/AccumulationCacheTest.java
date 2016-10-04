@@ -21,7 +21,9 @@ import static com.google.common.truth.Truth.assertThat;
  * @author Tim Schmidt (tim@wavefront.com).
  */
 public class AccumulationCacheTest {
-  private final long CAPACITY = 2L;
+  private final static long CAPACITY = 2L;
+  private final static short COMPRESSION = 100;
+
 
   private ConcurrentMap<HistogramKey, AgentDigest> backingStore;
   private Cache<HistogramKey, AgentDigest> cache;
@@ -43,9 +45,9 @@ public class AccumulationCacheTest {
     resolveTask = ac.getResolveTask();
     cache = ac.getCache();
 
-    digestA = new AgentDigest(100L);
-    digestB = new AgentDigest(1000L);
-    digestC = new AgentDigest(10000L);
+    digestA = new AgentDigest(COMPRESSION, 100L);
+    digestB = new AgentDigest(COMPRESSION, 1000L);
+    digestC = new AgentDigest(COMPRESSION, 10000L);
   }
 
   @Test

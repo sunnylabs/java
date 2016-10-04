@@ -20,6 +20,8 @@ import static com.google.common.truth.Truth.assertThat;
  * @author Tim Schmidt (tim@wavefront.com).
  */
 public class TapeDispatcherTest {
+  private final static short COMPRESSION = 100;
+
   private ConcurrentMap<Utils.HistogramKey, AgentDigest> in;
   private ObjectQueue<ReportPoint> out;
   private AtomicLong timeMillis;
@@ -35,8 +37,8 @@ public class TapeDispatcherTest {
   public void setup() {
     in = new ConcurrentHashMap<>();
     out = new InMemoryObjectQueue<>();
-    digestA = new AgentDigest(100L);
-    digestB = new AgentDigest(1000L);
+    digestA = new AgentDigest(COMPRESSION, 100L);
+    digestB = new AgentDigest(COMPRESSION, 1000L);
     timeMillis = new AtomicLong(0L);
     subject = new TapeDispatcher(in, out, timeMillis::get);
   }

@@ -22,7 +22,7 @@ import static com.wavefront.agent.histogram.Utils.HistogramKey;
  * @author Tim Schmidt (tim@wavefront.com).
  */
 public class Layering implements CacheWriter<HistogramKey, AgentDigest>, CacheLoader<HistogramKey, AgentDigest> {
-  private static final AgentDigest DELETED = new AgentDigest(0L);
+  private static final AgentDigest DELETED = new AgentDigest((short)20, 0L);
   private final ConcurrentMap<HistogramKey, AgentDigest> backingStore;
   private final ConcurrentMap<HistogramKey, AgentDigest> dirtyEntries;
 
