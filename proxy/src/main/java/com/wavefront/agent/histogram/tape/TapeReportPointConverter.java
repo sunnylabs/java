@@ -16,7 +16,6 @@ import sunnylabs.report.ReportPoint;
 
 /**
  * Adapter exposing the Avro encoding/decoding to Tape serialization
- * TODO Make this generic
  *
  * @author Tim Schmidt (tim@wavefront.com).
  */
