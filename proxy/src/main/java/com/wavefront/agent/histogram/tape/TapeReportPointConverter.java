@@ -15,7 +15,8 @@ import java.io.OutputStream;
 import sunnylabs.report.ReportPoint;
 
 /**
- * Adapter exposing the Avro encoding/decoding to Tape serialization
+ * Adapter exposing the Avro's {@link org.apache.avro.specific.SpecificRecord} encoding/decoding to Square tape's {@link
+ * com.squareup.tape.FileObjectQueue.Converter} interface.
  *
  * @author Tim Schmidt (tim@wavefront.com).
  */
@@ -29,6 +30,7 @@ public class TapeReportPointConverter implements FileObjectQueue.Converter<Repor
   public static TapeReportPointConverter get() {
     return INSTANCE;
   }
+
   @Override
   public ReportPoint from(byte[] bytes) throws IOException {
     SpecificDatumReader<ReportPoint> reader = new SpecificDatumReader<>(ReportPoint.SCHEMA$);

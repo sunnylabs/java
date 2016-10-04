@@ -210,14 +210,14 @@ public abstract class AbstractAgent {
   protected int avgHistogramKeyBytes = 200;
 
   @Parameter(
-      names = {"--histogramCompression"},
-      description = "Controls allowable number of centroids per histogram. Must be in [20;1000]")
-  protected short histogramCompression = 100;
-
-  @Parameter(
       names = {"--avgHistogramDigestBytes"},
       description = "Average number of bytes in a encoded histogram.")
   protected int avgHistogramDigestBytes = 1000;
+
+  @Parameter(
+      names = {"--histogramCompression"},
+      description = "Controls allowable number of centroids per histogram. Must be in [20;1000]")
+  protected short histogramCompression = 100;
 
   @Parameter(names = {"--graphitePorts"}, description = "Comma-separated list of ports to listen on for graphite " +
       "data. Defaults to empty list.")
@@ -388,9 +388,44 @@ public abstract class AbstractAgent {
         pushBlockedSamples = Integer.parseInt(prop.getProperty("pushBlockedSamples",
             String.valueOf(pushBlockedSamples)));
         pushListenerPorts = prop.getProperty("pushListenerPorts", pushListenerPorts);
+        histogramStateDirectory = prop.getProperty("histogramStateDirectory", histogramStateDirectory);
+        histogramAccumulatorResolveInterval = Long.parseLong(prop.getProperty(
+            "histogramAccumulatorResolveInterval",
+            String.valueOf(histogramAccumulatorResolveInterval)));
         histogramMinsListenerPorts = prop.getProperty("histogramMinsListenerPorts", histogramMinsListenerPorts);
+        histogramMinuteAccumulators = Integer.parseInt(prop.getProperty(
+            "histogramMinuteAccumulators",
+            String.valueOf(histogramMinuteAccumulators)));
+        histogramMinuteAccumulationInterval = Integer.parseInt(prop.getProperty(
+            "histogramMinuteAccumulationInterval",
+            String.valueOf(histogramMinuteAccumulationInterval)));
         histogramHoursListenerPorts = prop.getProperty("histogramHoursListenerPorts", histogramHoursListenerPorts);
+        histogramHourAccumulators = Integer.parseInt(prop.getProperty(
+            "histogramHourAccumulators",
+            String.valueOf(histogramHourAccumulators)));
+        histogramHourAccumulationInterval = Integer.parseInt(prop.getProperty(
+            "histogramHourAccumulationInterval",
+            String.valueOf(histogramHourAccumulationInterval)));
         histogramDaysListenerPorts = prop.getProperty("histogramDaysListenerPorts", histogramDaysListenerPorts);
+        histogramDayAccumulators = Integer.parseInt(prop.getProperty(
+            "histogramDayAccumulators",
+            String.valueOf(histogramDayAccumulators)));
+        histogramDayAccumulationInterval = Integer.parseInt(prop.getProperty(
+            "histogramDayAccumulationInterval",
+            String.valueOf(histogramDayAccumulationInterval)));
+        histogramAccumulatorSize = Long.parseLong(prop.getProperty(
+            "histogramAccumulatorSize",
+            String.valueOf(histogramAccumulatorSize)));
+        avgHistogramKeyBytes = Integer.parseInt(prop.getProperty(
+            "avgHistogramKeyBytes",
+            String.valueOf(avgHistogramKeyBytes)));
+        avgHistogramDigestBytes = Integer.parseInt(prop.getProperty(
+            "avgHistogramDigestBytes",
+            String.valueOf(avgHistogramDigestBytes)));
+        histogramCompression = Short.parseShort(prop.getProperty(
+            "histogramCompression",
+            String.valueOf(histogramCompression)));
+
         retryThreads = Integer.parseInt(prop.getProperty("retryThreads", String.valueOf(retryThreads)));
         flushThreads = Integer.parseInt(prop.getProperty("flushThreads", String.valueOf(flushThreads)));
         httpJsonPorts = prop.getProperty("jsonListenerPorts", httpJsonPorts);

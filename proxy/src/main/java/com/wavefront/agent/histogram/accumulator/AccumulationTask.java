@@ -24,7 +24,7 @@ import sunnylabs.report.ReportPoint;
 
 /**
  * Histogram accumulation task. Parses samples in Graphite/Wavefront notation from its input queue and accumulates them
- * in histograms.
+ * in {@link AgentDigest}.
  *
  * @author Tim Schmidt (tim@wavefront.com).
  */

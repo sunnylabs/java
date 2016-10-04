@@ -70,6 +70,13 @@ public class TapeDeck<T> {
     }
   }
 
+  @Override
+  public String toString() {
+    return "TapeDeck{" +
+        "queues=" + queues +
+        '}';
+  }
+
   /**
    * Threadsafe ObjectQueue wrapper with add, remove and peek counters;
    */

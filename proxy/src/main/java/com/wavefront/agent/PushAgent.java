@@ -50,6 +50,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ConcurrentMap;
+import java.util.logging.Level;
 
 import javax.annotation.Nullable;
 
@@ -113,7 +114,13 @@ public class PushAgent extends AbstractAgent {
           Collections.emptyIterator() :
           Splitter.on(",").omitEmptyStrings().trimResults().split(histogramDaysListenerPorts).iterator();
 
-      if (histDayPorts.hasNext() || histHourPorts.hasNext() || histMinPorts.hasNext()) {
+      if /*Histograms enabled*/ (histDayPorts.hasNext() || histHourPorts.hasNext() || histMinPorts.hasNext()) {
+        if (histogramCompression < 20 || histogramCompression > 1000) {
+          logger.log(Level.WARNING, "Histogram compression (" +
+              histogramCompression + ") outside of supported range [20;1000], will be clamped.");
+          histogramCompression = (short) Math.min(1000, (short) Math.max(20, histogramCompression));
+        }
+
         // Print metrics to console for debug purposes TODO remove
         ConsoleReporter.enable(20L, TimeUnit.SECONDS);
 
@@ -172,7 +179,7 @@ public class PushAgent extends AbstractAgent {
         });
 
         // Hour ports...
-        histHourPorts.forEachRemaining(port->{
+        histHourPorts.forEachRemaining(port -> {
           startHistogramListener(
               port,
               histogramHandler,
@@ -187,7 +194,7 @@ public class PushAgent extends AbstractAgent {
         });
 
         // Day ports...
-        histDayPorts.forEachRemaining(port->{
+        histDayPorts.forEachRemaining(port -> {
           startHistogramListener(
               port,
               histogramHandler,

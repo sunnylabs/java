@@ -94,29 +94,20 @@ public class AgentDigest extends AbstractTDigest {
 
   private long dispatchTimeMillis;
 
-  // Must be between 20 and 1000 (at least MergingDigest clamps to that range)
-//  private static final double COMPRESSION = 200D;
-
-  // TODO check this at parse argument time
-//  static {
-//    Preconditions.checkArgument(COMPRESSION >= 20D);
-//    Preconditions.checkArgument(COMPRESSION <= 1000D);
-//  }
-
-  // magic formula created by regressing against known sizes for sample compression values
-//  private static final int DEFAULT_BUFFER_SIZE = (int) (7.5 + 0.37 * COMPRESSION - 2e-4 * COMPRESSION * COMPRESSION);
   // should only need ceiling(compression * PI / 2).  Double the allocation for now for safety
-//  private static final int DEFAULT_SIZE = (int) (Math.PI * COMPRESSION + 0.5);
-
   private static int defaultSizeForCompression(short compression) {
     return (int) (Math.PI * compression + 0.5);
   }
 
+  // magic formula created by regressing against known sizes for sample compression values
   private static int bufferSizeForCompression(short compression) {
     return (int) (7.5 + 0.37 * compression - 2e-4 * compression * compression);
   }
 
   public AgentDigest(short compression, long dispatchTimeMillis) {
+    Preconditions.checkArgument(compression >= 20D);
+    Preconditions.checkArgument(compression <= 1000D);
+
     int numCentroids = defaultSizeForCompression(compression);
     int numBuffered = bufferSizeForCompression(compression);
 
